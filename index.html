@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Fiados — Padaria</title>
+    <meta name="description" content="Dashboard de controle de fiados e contas a receber da padaria">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <div>
+                <h1>Controle de Fiados</h1>
+                <p class="subtitle">Contas a Receber</p>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="header-stat">
+                <span class="header-stat-label">Total Geral</span>
+                <span class="header-stat-value" id="totalGeral">—</span>
+            </div>
+            <div class="header-stat">
+                <span class="header-stat-label">Clientes</span>
+                <span class="header-stat-value" id="totalClientes">—</span>
+            </div>
+            <div class="header-stat">
+                <span class="header-stat-label">Registros</span>
+                <span class="header-stat-value" id="totalRegistros">—</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <!-- Filters Bar -->
+        <section class="filters-bar" id="filtersBar">
+            <div class="filters-row">
+                <div class="filter-group">
+                    <label for="filterCliente">Cliente</label>
+                    <select id="filterCliente">
+                        <option value="">Todos os clientes</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterProduto">Produto</label>
+                    <select id="filterProduto">
+                        <option value="">Todos os produtos</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterUsuario">Registrado por</label>
+                    <select id="filterUsuario">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterDataDe">Data de</label>
+                    <input type="date" id="filterDataDe">
+                </div>
+                <div class="filter-group">
+                    <label for="filterDataAte">Data até</label>
+                    <input type="date" id="filterDataAte">
+                </div>
+                <div class="filter-group">
+                    <label for="filterValorMin">Valor mín.</label>
+                    <input type="number" id="filterValorMin" placeholder="0,00" step="0.01" min="0">
+                </div>
+                <div class="filter-group">
+                    <label for="filterValorMax">Valor máx.</label>
+                    <input type="number" id="filterValorMax" placeholder="999,00" step="0.01" min="0">
+                </div>
+                <div class="filter-group filter-actions">
+                    <label>&nbsp;</label>
+                    <div class="btn-row">
+                        <button class="btn btn-primary" id="btnFiltrar">Filtrar</button>
+                        <button class="btn btn-ghost" id="btnLimpar">Limpar</button>
+                    </div>
+                </div>
+            </div>
+            <div class="search-row">
+                <div class="search-box">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <input type="text" id="searchGlobal" placeholder="Busca rápida por cliente, produto, valor...">
+                </div>
+                <div class="view-toggle">
+                    <button class="view-btn active" id="viewCards" title="Visão por cliente">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+                    </button>
+                    <button class="view-btn" id="viewTable" title="Visão tabela completa">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Cards View (grouped by client) -->
+        <section class="cards-view" id="cardsView">
+            <div class="cards-grid" id="cardsGrid">
+                <!-- Generated by JS -->
+            </div>
+        </section>
+
+        <!-- Table View (all records) -->
+        <section class="table-view hidden" id="tableView">
+            <div class="table-wrapper">
+                <table class="data-table" id="dataTable">
+                    <thead>
+                        <tr>
+                            <th class="sortable" data-sort="cliente">Cliente <span class="sort-icon">↕</span></th>
+                            <th class="sortable" data-sort="produto">Produto <span class="sort-icon">↕</span></th>
+                            <th class="sortable" data-sort="valor">Valor <span class="sort-icon">↕</span></th>
+                            <th class="sortable" data-sort="saldo">Saldo Atual <span class="sort-icon">↕</span></th>
+                            <th class="sortable" data-sort="data">Data <span class="sort-icon">↕</span></th>
+                            <th>Código</th>
+                            <th>Registrado por</th>
+                            <th>Parcela</th>
+                            <th>Índice</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                <span id="tableCount">0 registros</span>
+                <span id="tableTotal">Total: R$ 0,00</span>
+            </div>
+        </section>
+
+        <!-- Client Detail Modal -->
+        <div class="modal-overlay hidden" id="modalOverlay">
+            <div class="modal" id="modalDetail">
+                <div class="modal-header">
+                    <div>
+                        <h2 id="modalClientName">Cliente</h2>
+                        <p class="modal-subtitle" id="modalClientSummary"></p>
+                    </div>
+                    <button class="modal-close" id="modalClose">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="modal-stats" id="modalStats"></div>
+                    <div class="modal-table-wrapper">
+                        <table class="data-table modal-table">
+                            <thead>
+                                <tr>
+                                    <th>Produto</th>
+                                    <th>Valor</th>
+                                    <th>Saldo</th>
+                                    <th>Data</th>
+                                    <th>Código</th>
+                                    <th>Registrado por</th>
+                                    <th>Parcela</th>
+                                </tr>
+                            </thead>
+                            <tbody id="modalTableBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" id="btnCopiarCobranca">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                        Copiar texto de cobrança
+                    </button>
+                    <button class="btn btn-ghost" id="btnExportarCliente">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                        Exportar detalhes
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast -->
+        <div class="toast hidden" id="toast">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <span id="toastMsg">Copiado!</span>
+        </div>
+    </main>
+
+    <script src="dados.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
