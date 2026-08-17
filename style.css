@@ -356,3 +356,51 @@ body{background:var(--bg-base);color:var(--text-primary);min-height:100vh;displa
     animation: shake 0.4s ease-in-out;
     border-color: var(--red) !important;
 }
+
+/* ========== URL PREVIEW & COLOR PICKER ========== */
+.url-preview-box {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 9px;
+    padding: 0.55rem 0.75rem;
+    font-size: 0.76rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+.url-preview-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+.url-preview-box code {
+    color: var(--accent);
+    font-family: monospace;
+    font-size: 0.76rem;
+}
+
+.color-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+    padding-top: 0.2rem;
+}
+.color-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform 0.15s, border-color 0.15s;
+}
+.color-dot:hover {
+    transform: scale(1.15);
+}
+.color-dot.active {
+    border-color: var(--text-primary);
+    transform: scale(1.15);
+    box-shadow: 0 0 0 2px var(--bg-surface);
+}

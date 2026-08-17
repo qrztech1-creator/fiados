@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QRZ Food — Painel Administrativo</title>
-    <meta name="description" content="Painel administrativo QRZ Food para gestão de clientes e fiados">
+    <meta name="description" content="Painel administrativo QRZ Food para cadastro e gestão de clientes e fiados">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -13,7 +13,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
-    <!-- LOGIN -->
+    <!-- LOGIN ADMIN -->
     <div class="login-overlay" id="loginOverlay">
         <div class="login-card">
             <img src="https://i.postimg.cc/X7znNcFg/qrzfood.png" alt="QRZ Food" class="login-logo">
@@ -40,7 +40,7 @@
         </div>
     </div>
 
-    <!-- APP -->
+    <!-- APP ADMIN -->
     <div class="app-wrapper hidden" id="appWrapper">
         <header class="header">
             <div class="header-left">
@@ -49,9 +49,9 @@
                     <div class="brand-titles">
                         <div class="brand-top-row">
                             <span class="brand-name">QRZ Food</span>
-                            <span class="client-badge">Admin</span>
+                            <span class="client-badge">Painel Admin</span>
                         </div>
-                        <p class="brand-subtitle">Painel de Gestão de Clientes</p>
+                        <p class="brand-subtitle">Gestão de Empresas & Fiados</p>
                     </div>
                 </div>
             </div>
@@ -71,22 +71,114 @@
         <main class="main">
             <section class="section-meta-header" style="margin-bottom:1.5rem">
                 <div class="section-title">
-                    <h2>Seus Clientes</h2>
-                    <span class="section-subtitle">Gerencie fiados, faça upload de planilhas e compartilhe o link com cada cliente</span>
+                    <h2>Clientes Cadastrados</h2>
+                    <span class="section-subtitle">Crie novos clientes, envie planilhas e compartilhe links protegidos por senha</span>
+                </div>
+                <div style="display:flex;gap:0.6rem;flex-wrap:wrap">
+                    <button class="btn btn-primary" id="btnNovoCliente">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        + Novo Cliente
+                    </button>
+                    <button class="btn btn-outline btn-sm" id="btnBackup" title="Exportar Backup de todos os clientes">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                        Backup
+                    </button>
                 </div>
             </section>
 
             <div class="cards-grid" id="clientsGrid">
-                <!-- Gerado pelo JS -->
+                <!-- Gerado dinamicamente pelo admin.js -->
             </div>
 
-            <!-- Upload / Processar Excel -->
+            <!-- MODAL: CRIAR / EDITAR CLIENTE -->
+            <div class="modal-backdrop hidden" id="clientFormModal">
+                <div class="modal-dialog modal-sm" style="max-width:540px">
+                    <div class="modal-top">
+                        <div class="modal-header-info">
+                            <h2 class="modal-client-title" id="clientFormTitle">Novo Cliente</h2>
+                            <p class="modal-client-subtitle">Cadastre a empresa, senha e envie a planilha inicial</p>
+                        </div>
+                        <button class="modal-close-button" id="closeClientFormModal">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                        </button>
+                    </div>
+                    <form id="clientForm" autocomplete="off">
+                        <div class="modal-content-scroll" style="padding:1.5rem;gap:1rem">
+                            <input type="hidden" id="formClientIdOriginal">
+                            
+                            <div class="filter-group">
+                                <label for="formClientName">Nome da Empresa / Cliente *</label>
+                                <input type="text" id="formClientName" placeholder="Ex: Flames Burger, Padaria Divino Pão" required>
+                            </div>
+
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+                                <div class="filter-group">
+                                    <label for="formClientShortName">Nome Curto *</label>
+                                    <input type="text" id="formClientShortName" placeholder="Ex: Flames" required>
+                                </div>
+                                <div class="filter-group">
+                                    <label for="formClientId">Identificador URL (Slug) *</label>
+                                    <input type="text" id="formClientId" placeholder="ex: flames" required>
+                                </div>
+                            </div>
+
+                            <div class="url-preview-box">
+                                <span class="url-preview-label">Link de acesso:</span>
+                                <code id="urlPreviewText">.../cliente.html?c=</code>
+                            </div>
+
+                            <div class="filter-group">
+                                <label for="formClientPassword">Senha de Acesso do Cliente *</label>
+                                <div class="login-input-wrap">
+                                    <input type="text" id="formClientPassword" placeholder="Ex: Flames@2026" required>
+                                    <button type="button" class="btn btn-secondary btn-sm" id="btnGenPassword" style="position:absolute;right:4px;padding:0.3rem 0.5rem;font-size:0.7rem">
+                                        Gerar
+                                    </button>
+                                </div>
+                                <small class="text-muted" style="font-size:0.7rem;margin-top:2px">Apenas o cliente com esta senha conseguirá visualizar os fiados.</small>
+                            </div>
+
+                            <div class="filter-group">
+                                <label>Cor de Destaque</label>
+                                <div class="color-picker-row">
+                                    <button type="button" class="color-dot active" data-color="#e8590c" style="background:#e8590c"></button>
+                                    <button type="button" class="color-dot" data-color="#2b8a3e" style="background:#2b8a3e"></button>
+                                    <button type="button" class="color-dot" data-color="#1971c2" style="background:#1971c2"></button>
+                                    <button type="button" class="color-dot" data-color="#9c36b5" style="background:#9c36b5"></button>
+                                    <button type="button" class="color-dot" data-color="#d6336c" style="background:#d6336c"></button>
+                                    <button type="button" class="color-dot" data-color="#d9480f" style="background:#d9480f"></button>
+                                    <input type="color" id="formClientColor" value="#e8590c" style="width:32px;height:32px;padding:0;border:none;border-radius:50%;cursor:pointer">
+                                </div>
+                            </div>
+
+                            <div class="filter-group">
+                                <label>Planilha Excel de Fiados (.xlsx)</label>
+                                <div class="upload-dropzone" id="formDropzone" style="padding:1.25rem">
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                                    <p style="font-size:0.8rem;margin:0"><strong id="formUploadText">Clique ou arraste o .xlsx aqui</strong></p>
+                                    <input type="file" id="formFileInput" accept=".xlsx,.xls" style="display:none">
+                                </div>
+                                <div class="upload-status hidden" id="formUploadStatus" style="padding:0.75rem">
+                                    <div class="upload-status-icon" style="width:24px;height:24px;font-size:0.8rem">✓</div>
+                                    <p id="formUploadStatusText" style="font-size:0.8rem;margin:0">0 registros carregados</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-bottom-actions">
+                            <button type="button" class="btn btn-secondary" id="btnCancelClientForm">Cancelar</button>
+                            <button type="submit" class="btn btn-primary" id="btnSaveClient">Salvar Cliente</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- MODAL: UPLOAD / ATUALIZAR PLANILHA -->
             <div class="modal-backdrop hidden" id="uploadOverlay">
                 <div class="modal-dialog modal-sm">
                     <div class="modal-top">
                         <div class="modal-header-info">
-                            <h2 class="modal-client-title" id="uploadTitle">Upload de Planilha</h2>
-                            <p class="modal-client-subtitle" id="uploadSubtitle">Envie o arquivo .xlsx para processar os fiados</p>
+                            <h2 class="modal-client-title" id="uploadTitle">Atualizar Planilha</h2>
+                            <p class="modal-client-subtitle" id="uploadSubtitle">Envie a nova planilha .xlsx</p>
                         </div>
                         <button class="modal-close-button" id="uploadClose">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
@@ -94,7 +186,7 @@
                     </div>
                     <div class="modal-content-scroll" style="padding:1.5rem">
                         <div class="upload-dropzone" id="dropzone">
-                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
                             <p><strong>Arraste o .xlsx aqui</strong> ou clique para selecionar</p>
                             <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none">
                         </div>
@@ -102,19 +194,10 @@
                             <div class="upload-status-icon">✓</div>
                             <p id="uploadStatusText">Processado com sucesso!</p>
                         </div>
-                        <div class="upload-info">
-                            <p class="text-muted" style="font-size:.78rem;margin-top:.75rem">
-                                O Excel deve ter a mesma estrutura exportada do sistema (coluna <code>banco</code> = cliente, <code>fatura</code> = produto, <code>saldoatual</code> = valor, etc).
-                            </p>
-                        </div>
                     </div>
                     <div class="modal-bottom-actions">
                         <span></span>
                         <div class="modal-actions-right">
-                            <button class="btn btn-success hidden" id="btnDownloadData">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-                                Baixar dados.js processado
-                            </button>
                             <button class="btn btn-secondary" id="btnCloseUpload">Fechar</button>
                         </div>
                     </div>
