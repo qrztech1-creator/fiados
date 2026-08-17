@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QRZ Food — Visualização de Fiados</title>
+    <meta name="description" content="Painel de visualização de contas a receber — QRZ Food">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/png" href="https://i.postimg.cc/X7znNcFg/qrzfood.png">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- LOGIN (senha simples) -->
+    <div class="login-overlay" id="loginOverlay">
+        <div class="login-card">
+            <img src="https://i.postimg.cc/X7znNcFg/qrzfood.png" alt="QRZ Food" class="login-logo">
+            <h1 class="login-title" id="loginTitle">QRZ Food</h1>
+            <p class="login-subtitle" id="loginSubtitle">Área do Cliente — Acesso Restrito</p>
+            <form id="loginForm" autocomplete="off">
+                <div class="login-field">
+                    <label for="loginPassword">Senha de Acesso</label>
+                    <div class="login-input-wrap">
+                        <input type="password" id="loginPassword" placeholder="Digite a senha..." autofocus autocomplete="off">
+                        <button type="button" class="toggle-pw" id="togglePw" title="Mostrar senha">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+                    </div>
+                    <p class="login-error hidden" id="loginError">Senha incorreta. Tente novamente.</p>
+                </div>
+                <button type="submit" class="btn btn-primary login-btn">Acessar</button>
+            </form>
+            <p class="login-footer-text">Desenvolvido por <a href="https://qrztech.com" target="_blank">QRZ Tech</a></p>
+        </div>
+    </div>
+
+    <!-- APP -->
+    <div class="app-wrapper hidden" id="appWrapper">
+        <header class="header">
+            <div class="header-left">
+                <div class="brand-container">
+                    <img src="https://i.postimg.cc/X7znNcFg/qrzfood.png" alt="QRZ Food" class="brand-logo">
+                    <div class="brand-titles">
+                        <div class="brand-top-row">
+                            <span class="brand-name">QRZ Food</span>
+                            <span class="client-badge" id="headerBadge">Cliente</span>
+                        </div>
+                        <p class="brand-subtitle">Gestão & Cobrança de Fiados</p>
+                    </div>
+                </div>
+            </div>
+            <div class="header-center">
+                <div class="header-stat"><span class="header-stat-label">Total a Receber</span><span class="header-stat-value text-accent" id="totalGeral">R$ 0,00</span></div>
+                <div class="stat-divider"></div>
+                <div class="header-stat"><span class="header-stat-label">Já Recebido</span><span class="header-stat-value text-green" id="totalRecebido">R$ 0,00</span></div>
+                <div class="stat-divider"></div>
+                <div class="header-stat"><span class="header-stat-label">Clientes</span><span class="header-stat-value" id="totalClientes">0</span></div>
+                <div class="stat-divider"></div>
+                <div class="header-stat"><span class="header-stat-label">Lançamentos</span><span class="header-stat-value" id="totalRegistros">0</span></div>
+            </div>
+            <div class="header-right">
+                <button class="btn btn-secondary btn-sm" id="btnLogout" title="Sair">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+                    Sair
+                </button>
+                <button class="theme-toggle-btn" id="themeToggle">
+                    <svg class="sun-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                    <svg class="moon-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+                    <span id="themeLabel">Modo Escuro</span>
+                </button>
+            </div>
+        </header>
+
+        <main class="main">
+            <!-- FILTERS -->
+            <section class="filters-card">
+                <div class="filters-card-header">
+                    <div class="filters-title-group">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                        <span>Filtros (aplicação instantânea)</span>
+                    </div>
+                    <div class="quick-presets">
+                        <button class="preset-chip active" data-preset="all">Todos</button>
+                        <button class="preset-chip" data-preset="pending">Pendentes</button>
+                        <button class="preset-chip" data-preset="partial">Parcial</button>
+                        <button class="preset-chip" data-preset="paid">Pagos</button>
+                        <button class="preset-chip" data-preset="high-value">Saldo &gt; R$50</button>
+                        <button class="preset-chip" data-preset="top-clients">Top 10</button>
+                    </div>
+                </div>
+                <div class="filters-grid">
+                    <div class="filter-group"><label for="filterCliente">Cliente</label><select id="filterCliente"><option value="">Todos</option></select></div>
+                    <div class="filter-group"><label for="filterProduto">Produto</label><select id="filterProduto"><option value="">Todos</option></select></div>
+                    <div class="filter-group"><label for="filterUsuario">Operador</label><select id="filterUsuario"><option value="">Todos</option></select></div>
+                    <div class="filter-group"><label for="filterDataDe">De</label><input type="date" id="filterDataDe"></div>
+                    <div class="filter-group"><label for="filterDataAte">Até</label><input type="date" id="filterDataAte"></div>
+                    <div class="filter-group"><label for="filterValorMin">Mín.</label><input type="number" id="filterValorMin" step="0.01" min="0" placeholder="0"></div>
+                    <div class="filter-group"><label for="filterValorMax">Máx.</label><input type="number" id="filterValorMax" step="0.01" min="0" placeholder="999"></div>
+                    <div class="filter-group"><label>&nbsp;</label><button class="btn btn-secondary btn-sm" id="btnLimpar">Limpar</button></div>
+                </div>
+                <div class="search-and-view-bar">
+                    <div class="search-input-wrapper">
+                        <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                        <input type="text" id="searchGlobal" placeholder="Busca rápida..." autocomplete="off">
+                        <span class="search-badge" id="searchCountBadge">0</span>
+                    </div>
+                    <div class="controls-right">
+                        <button class="btn btn-outline btn-sm" id="btnExportarGeral">Exportar</button>
+                        <div class="view-switch">
+                            <button class="view-tab active" id="viewCards">Cards</button>
+                            <button class="view-tab" id="viewTable">Tabela</button>
+                            <button class="view-tab" id="viewChart">Gráfico</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CARDS -->
+            <section class="cards-section" id="cardsView">
+                <div class="section-meta-header">
+                    <div class="section-title"><h2>Clientes com Débito</h2><span class="section-subtitle">Clique para ver extrato e gerar cobrança</span></div>
+                    <div class="sort-selector"><label for="cardSortSelect">Ordenar:</label><select id="cardSortSelect"><option value="debt-desc">Maior Débito</option><option value="debt-asc">Menor Débito</option><option value="name-asc">Nome (A-Z)</option><option value="items-desc">Mais Itens</option></select></div>
+                </div>
+                <div class="cards-grid" id="cardsGrid"></div>
+                <div class="empty-state hidden" id="cardsEmptyState"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><h3>Nenhum registro</h3><p>Ajuste os filtros.</p></div>
+            </section>
+
+            <!-- TABLE -->
+            <section class="table-section hidden" id="tableView">
+                <div class="table-card"><div class="table-scroll-container">
+                    <table class="data-table" id="dataTable"><thead><tr>
+                        <th class="sortable" data-sort="cliente">Cliente <span class="sort-indicator">↕</span></th>
+                        <th class="sortable" data-sort="produto">Produto <span class="sort-indicator">↕</span></th>
+                        <th class="sortable" data-sort="valor">Valor <span class="sort-indicator">↕</span></th>
+                        <th class="sortable" data-sort="saldo">Saldo <span class="sort-indicator">↕</span></th>
+                        <th>Pago</th><th>Status</th>
+                        <th class="sortable" data-sort="data">Data <span class="sort-indicator">↕</span></th>
+                        <th>Operador</th><th>Parcela</th>
+                    </tr></thead><tbody id="tableBody"></tbody></table>
+                </div><div class="table-footer-bar"><span id="tableCount">0</span><span class="text-accent" id="tableTotal">R$ 0,00</span></div></div>
+            </section>
+
+            <!-- CHARTS -->
+            <section class="chart-section hidden" id="chartView">
+                <div class="chart-grid">
+                    <div class="chart-card chart-card-wide"><div class="chart-card-header"><h3>Evolução Diária</h3><p class="text-muted">Saldo fiado por dia</p></div><div class="chart-canvas-wrap"><canvas id="chartDaily"></canvas></div></div>
+                    <div class="chart-card"><div class="chart-card-header"><h3>Top 10 Clientes</h3><p class="text-muted">Maiores devedores</p></div><div class="chart-canvas-wrap"><canvas id="chartTopClients"></canvas></div></div>
+                    <div class="chart-card"><div class="chart-card-header"><h3>Produtos Mais Fiados</h3><p class="text-muted">Distribuição por item</p></div><div class="chart-canvas-wrap"><canvas id="chartProducts"></canvas></div></div>
+                </div>
+            </section>
+        </main>
+
+        <!-- MODAL EXTRATO -->
+        <div class="modal-backdrop hidden" id="modalOverlay">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-top">
+                    <div class="modal-header-info">
+                        <div class="modal-badge-row"><span class="modal-client-badge">Extrato</span><span class="modal-shop-name" id="modalShopName">Cliente</span></div>
+                        <h2 class="modal-client-title" id="modalClientName">—</h2>
+                        <p class="modal-client-subtitle" id="modalClientSummary"></p>
+                    </div>
+                    <button class="modal-close-button" id="modalClose"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+                </div>
+                <div class="modal-content-scroll">
+                    <div class="modal-kpi-grid" id="modalStats"></div>
+                    <div class="modal-table-container">
+                        <div class="modal-table-header">
+                            <h4>Compras Fiadas</h4>
+                            <div class="modal-table-actions">
+                                <button class="btn btn-success btn-sm" id="btnBaixaTotal">✓ Baixa Total</button>
+                                <button class="btn btn-outline btn-sm" id="btnBaixaParcial">Baixa Parcial</button>
+                                <button class="btn btn-outline btn-sm" id="btnDesfazerBaixas">↩ Desfazer</button>
+                            </div>
+                        </div>
+                        <div class="modal-table-scroll">
+                            <table class="data-table modal-data-table"><thead><tr>
+                                <th><input type="checkbox" id="selectAllItems"></th>
+                                <th>Produto</th><th>Valor</th><th>Pago</th><th>Restante</th><th>Status</th><th>Data</th><th>Operador</th><th>Ação</th>
+                            </tr></thead><tbody id="modalTableBody"></tbody></table>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-bottom-actions">
+                    <button class="btn btn-secondary" id="btnExportarCliente">Baixar CSV</button>
+                    <div class="modal-actions-right">
+                        <button class="btn btn-success" id="btnCopiarCobranca">Copiar WhatsApp</button>
+                        <button class="btn btn-secondary" id="btnFecharModal">Fechar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL BAIXA PARCIAL -->
+        <div class="modal-backdrop hidden" id="baixaParcialOverlay">
+            <div class="modal-dialog modal-sm">
+                <div class="modal-top"><div class="modal-header-info"><h2 class="modal-client-title">Baixa Parcial</h2><p class="modal-client-subtitle" id="baixaParcialSubtitle">Valor recebido</p></div>
+                    <button class="modal-close-button" id="baixaParcialClose"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+                </div>
+                <div class="modal-content-scroll" style="padding:1.5rem">
+                    <div class="filter-group"><label for="baixaValorInput">Valor (R$)</label><input type="number" id="baixaValorInput" step="0.01" min="0.01" placeholder="50,00"></div>
+                    <div class="filter-group" style="margin-top:.75rem"><label for="baixaNotaInput">Obs. (opcional)</label><input type="text" id="baixaNotaInput" placeholder="Ex: Pix em 17/08"></div>
+                </div>
+                <div class="modal-bottom-actions"><span></span><div class="modal-actions-right"><button class="btn btn-success" id="btnConfirmarBaixa">Confirmar</button><button class="btn btn-secondary" id="btnCancelarBaixa">Cancelar</button></div></div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <div class="footer-container">
+                <div class="footer-left"><div class="footer-logo-row"><img src="https://i.postimg.cc/X7znNcFg/qrzfood.png" alt="QRZ Food" class="footer-logo"><span class="footer-system">QRZ Food • Gestão</span></div><p class="footer-sub" id="footerClientName">Cliente</p></div>
+                <div class="footer-center"><span class="footer-status-pill"><span class="status-dot"></span> <span id="footerSyncCount">0</span> registros</span></div>
+                <div class="footer-right"><p class="developed-by">Desenvolvido por <a href="https://qrztech.com" target="_blank" class="qrz-link"><strong>QRZ Tech</strong> (qrztech.com)</a></p><p class="footer-copy">© 2026 QRZ Tech.</p></div>
+            </div>
+        </footer>
+    </div>
+
+    <div class="toast-notification hidden" id="toast"><div class="toast-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div><span class="toast-message" id="toastMsg">OK</span></div>
+
+    <script src="clients_config.js"></script>
+    <script src="shared.js"></script>
+    <script src="cliente.js"></script>
+</body>
+</html>
