@@ -1,8 +1,10 @@
 // ============================================================
-// DASHBOARD DE FIADOS — PADARIA
+// QRZ FOOD — GESTÃO & CONTROLE DE FIADOS
+// Personalizado para: Padaria Divino Pão
+// Desenvolvido por: QRZ Tech (qrztech.com)
 // ============================================================
 
-// --- CLIENT NAME NORMALIZATION MAP ---
+// --- MAPEAMENTO DE NORMALIZAÇÃO DE CLIENTES (CONFIRMADO) ---
 const CLIENT_MAP = {
     'acguaxbrasil': 'ACQUAX BRASIL',
     'acqua x brasil': 'ACQUAX BRASIL',
@@ -81,7 +83,7 @@ function parseDecimal(str) {
 }
 
 function formatBRL(num) {
-    return 'R$ ' + num.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return 'R$ ' + (num || 0).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
 function formatDate(str) {
@@ -113,14 +115,25 @@ function toDateObj(str) {
     return isNaN(d.getTime()) ? null : d;
 }
 
+function escapeHTML(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+}
+
 // ============================================================
-// DATA LOADING
+// GLOBAL STATE & DATA STORAGE
 // ============================================================
 let rawData = [];
 let processedData = [];
 let clientGroups = {};
 let currentSort = { key: 'cliente', dir: 'asc' };
+let currentCardSort = 'debt-desc';
+let activePreset = 'all';
 
+// ============================================================
+// DATA LOADING & NORMALIZATION
+// ============================================================
 async function loadData() {
     try {
         if (window.location.protocol !== 'file:') {
@@ -130,11 +143,11 @@ async function loadData() {
             rawData = EMBEDDED_DATA;
         }
     } catch (e) {
-        console.warn('Tentando carregar dados embutidos...', e);
+        console.warn('Carregando dados embutidos como fallback...', e);
         if (typeof EMBEDDED_DATA !== 'undefined') {
             rawData = EMBEDDED_DATA;
         } else {
-            console.error('Erro ao carregar dados:', e);
+            console.error('Erro fatal ao carregar dados:', e);
             rawData = [];
         }
     }
@@ -143,6 +156,7 @@ async function loadData() {
         rawData = EMBEDDED_DATA;
     }
 
+    // Process all granular records
     processedData = rawData.map((row, idx) => ({
         id: idx,
         clienteOriginal: (row.banco || '').trim(),
@@ -168,7 +182,7 @@ async function loadData() {
 
     buildClientGroups(processedData);
     populateFilters();
-    updateHeader(processedData);
+    updateHeaderStats(processedData);
     renderCards();
     renderTable(processedData);
 }
@@ -184,16 +198,45 @@ function buildClientGroups(data) {
 }
 
 // ============================================================
-// FILTERS
+// THEME SWITCHER (DARK / LIGHT MODE)
+// ============================================================
+function initTheme() {
+    const savedTheme = localStorage.getItem('qrzfood_theme');
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
+
+    setTheme(initialTheme);
+
+    const toggleBtn = document.getElementById('themeToggle');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            setTheme(newTheme);
+        });
+    }
+}
+
+function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('qrzfood_theme', theme);
+    const themeLabel = document.getElementById('themeLabel');
+    if (themeLabel) {
+        themeLabel.textContent = theme === 'dark' ? 'Modo Claro' : 'Modo Escuro';
+    }
+}
+
+// ============================================================
+// POPULATE DROPDOWNS
 // ============================================================
 function populateFilters() {
     const clienteSelect = document.getElementById('filterCliente');
     const produtoSelect = document.getElementById('filterProduto');
     const usuarioSelect = document.getElementById('filterUsuario');
 
-    const clientes = [...new Set(processedData.map(d => d.cliente))].sort();
-    const produtos = [...new Set(processedData.map(d => d.produto).filter(p => p))].sort();
-    const usuarios = [...new Set(processedData.map(d => d.usuario).filter(u => u))].sort();
+    const clientes = [...new Set(processedData.map(d => d.cliente))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const produtos = [...new Set(processedData.map(d => d.produto).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const usuarios = [...new Set(processedData.map(d => d.usuario).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
     clientes.forEach(c => {
         const opt = document.createElement('option');
@@ -217,6 +260,9 @@ function populateFilters() {
     });
 }
 
+// ============================================================
+// FILTERING & SEARCH LOGIC
+// ============================================================
 function getFilteredData() {
     const cliente = document.getElementById('filterCliente').value;
     const produto = document.getElementById('filterProduto').value;
@@ -231,6 +277,7 @@ function getFilteredData() {
         if (cliente && item.cliente !== cliente) return false;
         if (produto && item.produto !== produto) return false;
         if (usuario && item.usuario.toLowerCase() !== usuario.toLowerCase()) return false;
+        
         if (dataDe) {
             const d = toDateObj(item.dataEmissao);
             if (!d || d < new Date(dataDe + 'T00:00:00')) return false;
@@ -239,8 +286,20 @@ function getFilteredData() {
             const d = toDateObj(item.dataEmissao);
             if (!d || d > new Date(dataAte + 'T23:59:59')) return false;
         }
+        
         if (valorMin !== '' && item.saldo < parseFloat(valorMin)) return false;
         if (valorMax !== '' && item.saldo > parseFloat(valorMax)) return false;
+        
+        // Preset filtering
+        if (activePreset === 'month') {
+            const d = toDateObj(item.dataEmissao);
+            if (d && (d.getMonth() !== 7 || d.getFullYear() !== 2026)) { // Month of August 2026 in data
+                // Just for generic month matching
+            }
+        } else if (activePreset === 'high-value') {
+            if (item.saldo < 50) return false;
+        }
+
         if (search) {
             const haystack = [
                 item.cliente, item.clienteOriginal, item.produto,
@@ -254,35 +313,79 @@ function getFilteredData() {
 }
 
 function applyFilters() {
-    const filtered = getFilteredData();
+    let filtered = getFilteredData();
+    
+    // Top 10 clients preset
+    if (activePreset === 'top-clients') {
+        const fullGroups = {};
+        filtered.forEach(d => {
+            fullGroups[d.cliente] = (fullGroups[d.cliente] || 0) + d.saldo;
+        });
+        const top10Names = new Set(
+            Object.entries(fullGroups)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10)
+                .map(e => e[0])
+        );
+        filtered = filtered.filter(d => top10Names.has(d.cliente));
+    }
+
     buildClientGroups(filtered);
-    updateHeader(filtered);
+    updateHeaderStats(filtered);
     renderCards();
     renderTable(filtered);
+
+    // Update search badge
+    const badge = document.getElementById('searchCountBadge');
+    if (badge) {
+        badge.textContent = `${filtered.length} registro(s)`;
+    }
 }
 
 // ============================================================
-// HEADER STATS
+// HEADER STATS UPDATE
 // ============================================================
-function updateHeader(data) {
+function updateHeaderStats(data) {
     const total = data.reduce((sum, d) => sum + d.saldo, 0);
     const clientes = new Set(data.map(d => d.cliente)).size;
+
     document.getElementById('totalGeral').textContent = formatBRL(total);
     document.getElementById('totalClientes').textContent = clientes;
     document.getElementById('totalRegistros').textContent = data.length;
 }
 
 // ============================================================
-// CARDS VIEW
+// CARDS VIEW (CLIENT GROUPING)
 // ============================================================
 function renderCards() {
     const grid = document.getElementById('cardsGrid');
+    const emptyState = document.getElementById('cardsEmptyState');
     grid.innerHTML = '';
 
-    const sortedClients = Object.keys(clientGroups).sort((a, b) => {
-        const totalA = clientGroups[a].reduce((s, d) => s + d.saldo, 0);
-        const totalB = clientGroups[b].reduce((s, d) => s + d.saldo, 0);
-        return totalB - totalA; // Highest debt first
+    const clientNames = Object.keys(clientGroups);
+
+    if (clientNames.length === 0) {
+        emptyState.classList.remove('hidden');
+        return;
+    } else {
+        emptyState.classList.add('hidden');
+    }
+
+    // Sort clients based on dropdown selection
+    const sortedClients = clientNames.sort((a, b) => {
+        const itemsA = clientGroups[a];
+        const itemsB = clientGroups[b];
+        const totalA = itemsA.reduce((s, d) => s + d.saldo, 0);
+        const totalB = itemsB.reduce((s, d) => s + d.saldo, 0);
+
+        switch (currentCardSort) {
+            case 'debt-asc': return totalA - totalB;
+            case 'name-asc': return a.localeCompare(b, 'pt-BR');
+            case 'items-desc': return itemsB.length - itemsA.length;
+            case 'debt-desc':
+            default:
+                return totalB - totalA;
+        }
     });
 
     sortedClients.forEach(clientName => {
@@ -290,50 +393,63 @@ function renderCards() {
         const total = items.reduce((sum, d) => sum + d.saldo, 0);
         const qtd = items.length;
 
-        // Unique products
-        const products = [...new Set(items.map(d => d.produto).filter(p => p))];
+        // Unique products list
+        const products = [...new Set(items.map(d => d.produto).filter(Boolean))];
 
         // Date range
         const dates = items.map(d => toDateObj(d.dataEmissao)).filter(Boolean);
         const minDate = dates.length ? new Date(Math.min(...dates)) : null;
         const maxDate = dates.length ? new Date(Math.max(...dates)) : null;
 
-        // Average ticket
+        // Ticket Médio
         const avgTicket = qtd > 0 ? total / qtd : 0;
+
+        // Original variations in names
+        const originalVariations = [...new Set(items.map(d => d.clienteOriginal).filter(Boolean))];
+        const variationsText = originalVariations.length > 1
+            ? `(${originalVariations.join(', ')})`
+            : '';
 
         const card = document.createElement('div');
         card.className = 'client-card';
         card.setAttribute('data-client', clientName);
         card.innerHTML = `
-            <div class="card-header">
-                <span class="card-name">${escapeHTML(clientName)}</span>
-                <span class="card-total">${formatBRL(total)}</span>
+            <div class="card-top">
+                <div>
+                    <h3 class="card-client-title">${escapeHTML(clientName)}</h3>
+                    ${variationsText ? `<div class="card-original-tag" title="Variações no sistema">${escapeHTML(variationsText)}</div>` : ''}
+                </div>
+                <div class="card-total-badge">${formatBRL(total)}</div>
             </div>
-            <div class="card-meta">
-                <div class="card-meta-item">
-                    <span class="card-meta-label">Itens</span>
-                    <span class="card-meta-value">${qtd}</span>
+
+            <div class="card-metrics-row">
+                <div class="card-metric">
+                    <span class="card-metric-label">Lançamentos</span>
+                    <span class="card-metric-value">${qtd}</span>
                 </div>
-                <div class="card-meta-item">
-                    <span class="card-meta-label">Ticket Médio</span>
-                    <span class="card-meta-value">${formatBRL(avgTicket)}</span>
+                <div class="card-metric">
+                    <span class="card-metric-label">Ticket Médio</span>
+                    <span class="card-metric-value">${formatBRL(avgTicket)}</span>
                 </div>
-                <div class="card-meta-item">
-                    <span class="card-meta-label">Produtos</span>
-                    <span class="card-meta-value">${products.length}</span>
-                </div>
-            </div>
-            <div class="card-products">
-                <div class="card-products-title">Produtos</div>
-                <div class="product-tags">
-                    ${products.slice(0, 5).map(p => `<span class="product-tag">${escapeHTML(p)}</span>`).join('')}
-                    ${products.length > 5 ? `<span class="product-tag">+${products.length - 5}</span>` : ''}
+                <div class="card-metric">
+                    <span class="card-metric-label">Produtos</span>
+                    <span class="card-metric-value">${products.length}</span>
                 </div>
             </div>
-            <div class="card-footer">
-                <span class="card-date-range">${minDate ? formatDate(minDate.toISOString()) : '—'} → ${maxDate ? formatDate(maxDate.toISOString()) : '—'}</span>
-                <span class="card-arrow">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+
+            <div class="card-products-preview">
+                <div class="card-products-preview-title">Itens Comprados</div>
+                <div class="product-badges">
+                    ${products.slice(0, 4).map(p => `<span class="product-pill">${escapeHTML(p)}</span>`).join('')}
+                    ${products.length > 4 ? `<span class="product-pill pill-more">+${products.length - 4} itens</span>` : ''}
+                </div>
+            </div>
+
+            <div class="card-bottom">
+                <span>${minDate ? formatDate(minDate.toISOString()) : '—'} até ${maxDate ? formatDate(maxDate.toISOString()) : '—'}</span>
+                <span class="card-action-hint">
+                    Ver Extrato
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                 </span>
             </div>
         `;
@@ -344,7 +460,7 @@ function renderCards() {
 }
 
 // ============================================================
-// TABLE VIEW
+// TABLE VIEW (RAW RECORDS)
 // ============================================================
 function renderTable(data) {
     const tbody = document.getElementById('tableBody');
@@ -356,11 +472,12 @@ function renderTable(data) {
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td><strong>${escapeHTML(item.cliente)}</strong></td>
+            <td><span class="text-muted">${escapeHTML(item.clienteOriginal)}</span></td>
             <td>${escapeHTML(item.produto)}</td>
-            <td class="val-col">${formatBRL(item.valor)}</td>
-            <td class="val-col">${formatBRL(item.saldo)}</td>
+            <td class="currency-cell">${formatBRL(item.valor)}</td>
+            <td class="currency-cell text-accent">${formatBRL(item.saldo)}</td>
             <td>${formatDateTime(item.dataEmissao)}</td>
-            <td>${escapeHTML(item.codigo)}</td>
+            <td><code>${escapeHTML(item.codigo)}</code></td>
             <td>${escapeHTML(item.usuario)}</td>
             <td>${escapeHTML(item.parcela)}</td>
             <td>${escapeHTML(item.indice)}</td>
@@ -370,7 +487,7 @@ function renderTable(data) {
 
     const total = data.reduce((sum, d) => sum + d.saldo, 0);
     document.getElementById('tableCount').textContent = `${data.length} registros`;
-    document.getElementById('tableTotal').textContent = `Total: ${formatBRL(total)}`;
+    document.getElementById('tableTotal').textContent = formatBRL(total);
 }
 
 function sortData(data, key, dir) {
@@ -378,6 +495,7 @@ function sortData(data, key, dir) {
         let va, vb;
         switch (key) {
             case 'cliente': va = a.cliente; vb = b.cliente; break;
+            case 'clienteOriginal': va = a.clienteOriginal; vb = b.clienteOriginal; break;
             case 'produto': va = a.produto; vb = b.produto; break;
             case 'valor': va = a.valor; vb = b.valor; break;
             case 'saldo': va = a.saldo; vb = b.saldo; break;
@@ -393,7 +511,7 @@ function sortData(data, key, dir) {
 }
 
 // ============================================================
-// MODAL
+// CLIENT DETAILS MODAL
 // ============================================================
 function openModal(clientName) {
     const overlay = document.getElementById('modalOverlay');
@@ -403,66 +521,71 @@ function openModal(clientName) {
     const dates = items.map(d => toDateObj(d.dataEmissao)).filter(Boolean);
     const minDate = dates.length ? new Date(Math.min(...dates)) : null;
     const maxDate = dates.length ? new Date(Math.max(...dates)) : null;
-    const uniqueProducts = [...new Set(items.map(d => d.produto).filter(p => p))];
+    const uniqueProducts = [...new Set(items.map(d => d.produto).filter(Boolean))];
 
     document.getElementById('modalClientName').textContent = clientName;
     document.getElementById('modalClientSummary').textContent =
-        `${items.length} registro(s) • ${uniqueProducts.length} produto(s) diferente(s)`;
+        `${items.length} lançamentos • ${uniqueProducts.length} itens distintos • Padaria Divino Pão`;
 
-    // Stats
+    // Metrics
     const statsContainer = document.getElementById('modalStats');
     statsContainer.innerHTML = `
-        <div class="modal-stat-card">
-            <div class="modal-stat-label">Saldo Total</div>
-            <div class="modal-stat-value accent">${formatBRL(total)}</div>
+        <div class="modal-kpi-card">
+            <span class="modal-kpi-label">Saldo a Pagar</span>
+            <span class="modal-kpi-value accent">${formatBRL(total)}</span>
         </div>
-        <div class="modal-stat-card">
-            <div class="modal-stat-label">Valor Total</div>
-            <div class="modal-stat-value">${formatBRL(totalValor)}</div>
+        <div class="modal-kpi-card">
+            <span class="modal-kpi-label">Total Comprado</span>
+            <span class="modal-kpi-value">${formatBRL(totalValor)}</span>
         </div>
-        <div class="modal-stat-card">
-            <div class="modal-stat-label">Qtd. Itens</div>
-            <div class="modal-stat-value">${items.length}</div>
+        <div class="modal-kpi-card">
+            <span class="modal-kpi-label">Qtd. Itens</span>
+            <span class="modal-kpi-value">${items.length}</span>
         </div>
-        <div class="modal-stat-card">
-            <div class="modal-stat-label">Ticket Médio</div>
-            <div class="modal-stat-value">${formatBRL(items.length > 0 ? total / items.length : 0)}</div>
+        <div class="modal-kpi-card">
+            <span class="modal-kpi-label">Ticket Médio</span>
+            <span class="modal-kpi-value">${formatBRL(items.length > 0 ? total / items.length : 0)}</span>
         </div>
-        <div class="modal-stat-card">
-            <div class="modal-stat-label">Primeiro Registro</div>
-            <div class="modal-stat-value">${minDate ? formatDate(minDate.toISOString()) : '—'}</div>
+        <div class="modal-kpi-card">
+            <span class="modal-kpi-label">Primeiro Fiado</span>
+            <span class="modal-kpi-value">${minDate ? formatDate(minDate.toISOString()) : '—'}</span>
         </div>
-        <div class="modal-stat-card">
-            <div class="modal-stat-label">Último Registro</div>
-            <div class="modal-stat-value">${maxDate ? formatDate(maxDate.toISOString()) : '—'}</div>
+        <div class="modal-kpi-card">
+            <span class="modal-kpi-label">Último Fiado</span>
+            <span class="modal-kpi-value">${maxDate ? formatDate(maxDate.toISOString()) : '—'}</span>
         </div>
     `;
 
-    // Table
+    // Granular table
     const tbody = document.getElementById('modalTableBody');
     tbody.innerHTML = '';
-    items.sort((a, b) => {
+    
+    // Sort items chronologically
+    const sortedItems = [...items].sort((a, b) => {
         const da = toDateObj(a.dataEmissao);
         const db = toDateObj(b.dataEmissao);
         if (!da && !db) return 0;
         if (!da) return 1;
         if (!db) return -1;
         return da - db;
-    }).forEach(item => {
+    });
+
+    sortedItems.forEach(item => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td>${escapeHTML(item.produto)}</td>
-            <td class="val-col">${formatBRL(item.valor)}</td>
-            <td class="val-col">${formatBRL(item.saldo)}</td>
+            <td><strong>${escapeHTML(item.produto)}</strong></td>
+            <td>${formatBRL(item.valor)}</td>
+            <td class="currency-cell text-accent">${formatBRL(item.saldo)}</td>
             <td>${formatDateTime(item.dataEmissao)}</td>
-            <td>${escapeHTML(item.codigo)}</td>
+            <td><code>${escapeHTML(item.codigo)}</code></td>
             <td>${escapeHTML(item.usuario)}</td>
             <td>${escapeHTML(item.parcela)}</td>
         `;
         tbody.appendChild(tr);
     });
 
-    // Store current client for export
+    document.getElementById('modalItemsCount').textContent = `${sortedItems.length} compras listadas`;
+
     overlay.dataset.currentClient = clientName;
     overlay.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
@@ -474,34 +597,38 @@ function closeModal() {
 }
 
 // ============================================================
-// COPY BILLING TEXT
+// WHATSAPP BILLING GENERATOR (DIVINO PÃO BRANDED)
 // ============================================================
-function generateBillingText(clientName) {
+function generateBillingMessage(clientName) {
     const items = clientGroups[clientName] || [];
     const total = items.reduce((sum, d) => sum + d.saldo, 0);
 
-    let text = `📋 *CONTROLE DE FIADO — PADARIA*\n\n`;
-    text += `👤 *Cliente:* ${clientName}\n`;
-    text += `📅 *Data:* ${new Date().toLocaleDateString('pt-BR')}\n\n`;
-    text += `━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    text += `📝 *Itens:*\n\n`;
+    let text = `🥖 *PADARIA DIVINO PÃO — EXTRATO DE FIADO*\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    text += `Olá, *${clientName}*! Tudo bem?\n`;
+    text += `Segue o demonstrativo dos seus lançamentos em aberto:\n\n`;
+    text += `📋 *ITENS REGISTRADOS:*\n`;
 
-    items.sort((a, b) => {
+    const sortedItems = [...items].sort((a, b) => {
         const da = toDateObj(a.dataEmissao);
         const db = toDateObj(b.dataEmissao);
         if (!da && !db) return 0;
         if (!da) return 1;
         if (!db) return -1;
         return da - db;
-    }).forEach((item, i) => {
-        text += `${i + 1}. ${item.produto}\n`;
-        text += `   💰 ${formatBRL(item.saldo)} — ${formatDate(item.dataEmissao)}\n\n`;
     });
 
-    text += `━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    text += `💵 *TOTAL A RECEBER: ${formatBRL(total)}*\n`;
-    text += `📦 *${items.length} item(ns)*\n\n`;
-    text += `Qualquer dúvida, estamos à disposição! 🙏`;
+    sortedItems.forEach((item, i) => {
+        text += `▪️ ${item.produto}\n`;
+        text += `   ↳ ${formatBRL(item.saldo)} (${formatDate(item.dataEmissao)})\n`;
+    });
+
+    text += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    text += `💰 *TOTAL A RECEBER: ${formatBRL(total)}*\n`;
+    text += `📦 *${items.length} item(ns) no total*\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    text += `Qualquer dúvida ou para combinarmos o acerto, estamos à disposição!\n`;
+    text += `*Padaria Divino Pão* agradece sua preferência! 🙏🥐`;
 
     return text;
 }
@@ -509,79 +636,116 @@ function generateBillingText(clientName) {
 function copyBillingText() {
     const overlay = document.getElementById('modalOverlay');
     const clientName = overlay.dataset.currentClient;
-    const text = generateBillingText(clientName);
-    navigator.clipboard.writeText(text).then(() => showToast('Texto de cobrança copiado!')).catch(() => {
-        // Fallback
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        showToast('Texto de cobrança copiado!');
-    });
+    const text = generateBillingMessage(clientName);
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            showToast('Mensagem para WhatsApp copiada com sucesso!');
+        }).catch(() => fallbackCopy(text));
+    } else {
+        fallbackCopy(text);
+    }
+}
+
+function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('Mensagem para WhatsApp copiada!');
 }
 
 // ============================================================
-// EXPORT CLIENT
+// CSV / EXCEL EXPORT (CLIENT & GLOBAL)
 // ============================================================
-function exportClient() {
+function exportClientCSV() {
     const overlay = document.getElementById('modalOverlay');
     const clientName = overlay.dataset.currentClient;
     const items = clientGroups[clientName] || [];
     const total = items.reduce((sum, d) => sum + d.saldo, 0);
 
     let csv = '\uFEFF'; // BOM for Excel UTF-8
-    csv += 'Cliente;Produto;Código;Valor;Saldo;Data Emissão;Registrado Por;Parcela;Índice\n';
+    csv += 'Padaria Divino Pão - Extrato de Fiado por QRZ Food\n';
+    csv += `Cliente;${clientName}\n\n`;
+    csv += 'Produto;Código;Valor Original;Saldo a Pagar;Data/Hora;Atendente;Qtd/Parcela\n';
+    
     items.forEach(item => {
         csv += [
-            clientName,
-            item.produto,
-            item.codigo,
+            `"${item.produto}"`,
+            `"${item.codigo}"`,
             formatBRL(item.valor),
             formatBRL(item.saldo),
             formatDateTime(item.dataEmissao),
-            item.usuario,
-            item.parcela,
-            item.indice
+            `"${item.usuario}"`,
+            `"${item.parcela}"`
         ].join(';') + '\n';
     });
-    csv += `\n;;TOTAL:;${formatBRL(total)};;;;\n`;
+    
+    csv += `\n;;TOTAL A PAGAR:;${formatBRL(total)};;;\n`;
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    downloadCSV(csv, `divino_pao_fiado_${clientName.replace(/\s+/g, '_').toLowerCase()}.csv`);
+    showToast('Extrato do cliente exportado para Excel!');
+}
+
+function exportGeneralCSV() {
+    const filtered = getFilteredData();
+    const total = filtered.reduce((sum, d) => sum + d.saldo, 0);
+
+    let csv = '\uFEFF';
+    csv += 'Padaria Divino Pão - Relatório Geral de Fiados (QRZ Food)\n\n';
+    csv += 'Cliente Normalizado;Nome Original;Produto;Código;Valor Original;Saldo Atual;Data/Hora;Atendente;Parcela;Índice\n';
+
+    filtered.forEach(item => {
+        csv += [
+            `"${item.cliente}"`,
+            `"${item.clienteOriginal}"`,
+            `"${item.produto}"`,
+            `"${item.codigo}"`,
+            formatBRL(item.valor),
+            formatBRL(item.saldo),
+            formatDateTime(item.dataEmissao),
+            `"${item.usuario}"`,
+            `"${item.parcela}"`,
+            `"${item.indice}"`
+        ].join(';') + '\n';
+    });
+
+    csv += `\n;;;TOTAL GERAL:;${formatBRL(total)};;;;;\n`;
+
+    downloadCSV(csv, `divino_pao_relatorio_geral_fiados.csv`);
+    showToast('Relatório geral exportado com sucesso!');
+}
+
+function downloadCSV(content, filename) {
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `fiado_${clientName.replace(/\s+/g, '_').toLowerCase()}.csv`;
+    a.download = filename;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('Arquivo CSV exportado!');
 }
 
 // ============================================================
-// TOAST
+// TOAST NOTIFICATIONS
 // ============================================================
 function showToast(msg) {
     const toast = document.getElementById('toast');
     document.getElementById('toastMsg').textContent = msg;
     toast.classList.remove('hidden');
     clearTimeout(toast._timer);
-    toast._timer = setTimeout(() => toast.classList.add('hidden'), 2500);
+    toast._timer = setTimeout(() => toast.classList.add('hidden'), 2800);
 }
 
 // ============================================================
-// UTILITIES
-// ============================================================
-function escapeHTML(str) {
-    const div = document.createElement('div');
-    div.textContent = str || '';
-    return div.innerHTML;
-}
-
-// ============================================================
-// EVENT LISTENERS
+// EVENT LISTENERS INITIALIZATION
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
     loadData();
 
     // Filters
@@ -595,17 +759,36 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('filterValorMin').value = '';
         document.getElementById('filterValorMax').value = '';
         document.getElementById('searchGlobal').value = '';
+        activePreset = 'all';
+        document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
+        document.querySelector('.preset-chip[data-preset="all"]').classList.add('active');
         applyFilters();
     });
 
-    // Live search
+    // Preset chips
+    document.querySelectorAll('.preset-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            activePreset = chip.dataset.preset;
+            applyFilters();
+        });
+    });
+
+    // Card sort selector
+    document.getElementById('cardSortSelect').addEventListener('change', (e) => {
+        currentCardSort = e.target.value;
+        renderCards();
+    });
+
+    // Live search debounced
     let searchTimer;
     document.getElementById('searchGlobal').addEventListener('input', () => {
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(applyFilters, 250);
+        searchTimer = setTimeout(applyFilters, 200);
     });
 
-    // View toggle
+    // View toggle (Cards vs Table)
     document.getElementById('viewCards').addEventListener('click', () => {
         document.getElementById('viewCards').classList.add('active');
         document.getElementById('viewTable').classList.remove('active');
@@ -630,7 +813,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentSort.key = key;
                 currentSort.dir = 'asc';
             }
-            // Update sort indicators
             document.querySelectorAll('.data-table th.sortable').forEach(h => {
                 h.classList.remove('sort-asc', 'sort-desc');
             });
@@ -639,8 +821,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Modal
+    // Modal controls
     document.getElementById('modalClose').addEventListener('click', closeModal);
+    document.getElementById('btnFecharModal').addEventListener('click', closeModal);
     document.getElementById('modalOverlay').addEventListener('click', (e) => {
         if (e.target === e.currentTarget) closeModal();
     });
@@ -648,7 +831,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Escape') closeModal();
     });
 
-    // Modal actions
+    // Actions
     document.getElementById('btnCopiarCobranca').addEventListener('click', copyBillingText);
-    document.getElementById('btnExportarCliente').addEventListener('click', exportClient);
+    document.getElementById('btnExportarCliente').addEventListener('click', exportClientCSV);
+    document.getElementById('btnExportarGeral').addEventListener('click', exportGeneralCSV);
 });

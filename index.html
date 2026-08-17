@@ -1,46 +1,86 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Controle de Fiados — Padaria</title>
-    <meta name="description" content="Dashboard de controle de fiados e contas a receber da padaria">
+    <title>QRZ Food — Gestão de Fiados | Divino Pão</title>
+    <meta name="description" content="Sistema QRZ Food de controle de fiados e contas a receber da Padaria Divino Pão">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/png" href="https://i.postimg.cc/X7znNcFg/qrzfood.png">
 </head>
 <body>
+    <!-- Top Navigation Bar -->
     <header class="header">
         <div class="header-left">
-            <div class="logo">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-            </div>
-            <div>
-                <h1>Controle de Fiados</h1>
-                <p class="subtitle">Contas a Receber</p>
+            <div class="brand-container">
+                <img src="https://i.postimg.cc/X7znNcFg/qrzfood.png" alt="QRZ Food Logo" class="brand-logo" onerror="this.style.display='none'">
+                <div class="brand-titles">
+                    <div class="brand-top-row">
+                        <span class="brand-name">QRZ Food</span>
+                        <span class="client-badge">Divino Pão</span>
+                    </div>
+                    <p class="brand-subtitle">Gestão & Cobrança de Fiados</p>
+                </div>
             </div>
         </div>
+
+        <div class="header-center">
+            <div class="header-stat">
+                <span class="header-stat-label">Total a Receber</span>
+                <span class="header-stat-value text-accent" id="totalGeral">R$ 0,00</span>
+            </div>
+            <div class="stat-divider"></div>
+            <div class="header-stat">
+                <span class="header-stat-label">Clientes em Aberto</span>
+                <span class="header-stat-value" id="totalClientes">0</span>
+            </div>
+            <div class="stat-divider"></div>
+            <div class="header-stat">
+                <span class="header-stat-label">Total de Lançamentos</span>
+                <span class="header-stat-value" id="totalRegistros">0</span>
+            </div>
+        </div>
+
         <div class="header-right">
-            <div class="header-stat">
-                <span class="header-stat-label">Total Geral</span>
-                <span class="header-stat-value" id="totalGeral">—</span>
-            </div>
-            <div class="header-stat">
-                <span class="header-stat-label">Clientes</span>
-                <span class="header-stat-value" id="totalClientes">—</span>
-            </div>
-            <div class="header-stat">
-                <span class="header-stat-label">Registros</span>
-                <span class="header-stat-value" id="totalRegistros">—</span>
-            </div>
+            <!-- Theme Toggle Button -->
+            <button class="theme-toggle-btn" id="themeToggle" title="Alternar Modo Escuro / Claro" aria-label="Alternar tema">
+                <div class="theme-icon-container">
+                    <!-- Sun Icon (Light) -->
+                    <svg class="sun-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="4"/>
+                        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+                    </svg>
+                    <!-- Moon Icon (Dark) -->
+                    <svg class="moon-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+                    </svg>
+                </div>
+                <span class="theme-toggle-text" id="themeLabel">Modo Escuro</span>
+            </button>
         </div>
     </header>
 
     <main class="main">
-        <!-- Filters Bar -->
-        <section class="filters-bar" id="filtersBar">
-            <div class="filters-row">
+        <!-- Filters & Search Section -->
+        <section class="filters-card" id="filtersBar">
+            <div class="filters-card-header">
+                <div class="filters-title-group">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                    <span>Filtros de Pesquisa & Visualização</span>
+                </div>
+                <div class="quick-presets">
+                    <span class="preset-label">Filtrar por:</span>
+                    <button class="preset-chip active" data-preset="all">Todos</button>
+                    <button class="preset-chip" data-preset="month">Mês Atual</button>
+                    <button class="preset-chip" data-preset="high-value">Saldo &gt; R$ 50</button>
+                    <button class="preset-chip" data-preset="top-clients">Top 10 Maiores</button>
+                </div>
+            </div>
+
+            <div class="filters-grid">
                 <div class="filter-group">
                     <label for="filterCliente">Cliente</label>
                     <select id="filterCliente">
@@ -48,143 +88,254 @@
                     </select>
                 </div>
                 <div class="filter-group">
-                    <label for="filterProduto">Produto</label>
+                    <label for="filterProduto">Produto / Item</label>
                     <select id="filterProduto">
                         <option value="">Todos os produtos</option>
                     </select>
                 </div>
                 <div class="filter-group">
-                    <label for="filterUsuario">Registrado por</label>
+                    <label for="filterUsuario">Atendente / Operador</label>
                     <select id="filterUsuario">
-                        <option value="">Todos</option>
+                        <option value="">Todos os atendentes</option>
                     </select>
                 </div>
                 <div class="filter-group">
-                    <label for="filterDataDe">Data de</label>
+                    <label for="filterDataDe">De (Data)</label>
                     <input type="date" id="filterDataDe">
                 </div>
                 <div class="filter-group">
-                    <label for="filterDataAte">Data até</label>
+                    <label for="filterDataAte">Até (Data)</label>
                     <input type="date" id="filterDataAte">
                 </div>
                 <div class="filter-group">
-                    <label for="filterValorMin">Valor mín.</label>
+                    <label for="filterValorMin">Valor Mín. (R$)</label>
                     <input type="number" id="filterValorMin" placeholder="0,00" step="0.01" min="0">
                 </div>
                 <div class="filter-group">
-                    <label for="filterValorMax">Valor máx.</label>
+                    <label for="filterValorMax">Valor Máx. (R$)</label>
                     <input type="number" id="filterValorMax" placeholder="999,00" step="0.01" min="0">
                 </div>
                 <div class="filter-group filter-actions">
                     <label>&nbsp;</label>
-                    <div class="btn-row">
-                        <button class="btn btn-primary" id="btnFiltrar">Filtrar</button>
-                        <button class="btn btn-ghost" id="btnLimpar">Limpar</button>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" id="btnFiltrar">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                            Filtrar
+                        </button>
+                        <button class="btn btn-secondary" id="btnLimpar" title="Limpar todos os filtros">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                            Limpar
+                        </button>
                     </div>
                 </div>
             </div>
-            <div class="search-row">
-                <div class="search-box">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                    <input type="text" id="searchGlobal" placeholder="Busca rápida por cliente, produto, valor...">
+
+            <!-- Search & View Bar -->
+            <div class="search-and-view-bar">
+                <div class="search-input-wrapper">
+                    <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <input type="text" id="searchGlobal" placeholder="Pesquisar por cliente, produto, código, operador ou valor..." autocomplete="off">
+                    <span class="search-badge" id="searchCountBadge">587 registros</span>
                 </div>
-                <div class="view-toggle">
-                    <button class="view-btn active" id="viewCards" title="Visão por cliente">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+
+                <div class="controls-right">
+                    <button class="btn btn-outline" id="btnExportarGeral" title="Exportar dados visíveis para Excel/CSV">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                        Exportar Tudo
                     </button>
-                    <button class="view-btn" id="viewTable" title="Visão tabela completa">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>
-                    </button>
+                    <div class="view-switch">
+                        <button class="view-tab active" id="viewCards" title="Visualização em Cards por Cliente">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+                            Cards
+                        </button>
+                        <button class="view-tab" id="viewTable" title="Visualização em Tabela Completa">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>
+                            Tabela
+                        </button>
+                    </div>
                 </div>
             </div>
         </section>
 
-        <!-- Cards View (grouped by client) -->
-        <section class="cards-view" id="cardsView">
+        <!-- Dynamic Content Area -->
+        <!-- 1. Cards View (Grouped by normalized client) -->
+        <section class="cards-section" id="cardsView">
+            <div class="section-meta-header">
+                <div class="section-title">
+                    <h2>Clientes com Débito</h2>
+                    <span class="section-subtitle">Clique no cartão de qualquer cliente para ver o extrato completo e gerar a mensagem de cobrança</span>
+                </div>
+                <div class="sort-selector">
+                    <label for="cardSortSelect">Ordenar cartões por:</label>
+                    <select id="cardSortSelect">
+                        <option value="debt-desc">Maior Débito (R$)</option>
+                        <option value="debt-asc">Menor Débito (R$)</option>
+                        <option value="name-asc">Nome do Cliente (A-Z)</option>
+                        <option value="items-desc">Mais Lançamentos</option>
+                    </select>
+                </div>
+            </div>
             <div class="cards-grid" id="cardsGrid">
-                <!-- Generated by JS -->
+                <!-- Injected via JavaScript -->
+            </div>
+            <div class="empty-state hidden" id="cardsEmptyState">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="m11 8v6"/><path d="m8 11h6"/></svg>
+                <h3>Nenhum registro encontrado</h3>
+                <p>Tente ajustar os filtros ou os termos da sua pesquisa.</p>
             </div>
         </section>
 
-        <!-- Table View (all records) -->
-        <section class="table-view hidden" id="tableView">
-            <div class="table-wrapper">
-                <table class="data-table" id="dataTable">
-                    <thead>
-                        <tr>
-                            <th class="sortable" data-sort="cliente">Cliente <span class="sort-icon">↕</span></th>
-                            <th class="sortable" data-sort="produto">Produto <span class="sort-icon">↕</span></th>
-                            <th class="sortable" data-sort="valor">Valor <span class="sort-icon">↕</span></th>
-                            <th class="sortable" data-sort="saldo">Saldo Atual <span class="sort-icon">↕</span></th>
-                            <th class="sortable" data-sort="data">Data <span class="sort-icon">↕</span></th>
-                            <th>Código</th>
-                            <th>Registrado por</th>
-                            <th>Parcela</th>
-                            <th>Índice</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tableBody">
-                    </tbody>
-                </table>
-            </div>
-            <div class="table-footer">
-                <span id="tableCount">0 registros</span>
-                <span id="tableTotal">Total: R$ 0,00</span>
-            </div>
-        </section>
-
-        <!-- Client Detail Modal -->
-        <div class="modal-overlay hidden" id="modalOverlay">
-            <div class="modal" id="modalDetail">
-                <div class="modal-header">
-                    <div>
-                        <h2 id="modalClientName">Cliente</h2>
-                        <p class="modal-subtitle" id="modalClientSummary"></p>
-                    </div>
-                    <button class="modal-close" id="modalClose">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                    </button>
+        <!-- 2. Table View (All granular records) -->
+        <section class="table-section hidden" id="tableView">
+            <div class="section-meta-header">
+                <div class="section-title">
+                    <h2>Todos os Lançamentos Individuais</h2>
+                    <span class="section-subtitle">Visualize e ordene todos os 587 registros brutos da base</span>
                 </div>
-                <div class="modal-body">
-                    <div class="modal-stats" id="modalStats"></div>
-                    <div class="modal-table-wrapper">
-                        <table class="data-table modal-table">
+            </div>
+            <div class="table-card">
+                <div class="table-scroll-container">
+                    <table class="data-table" id="dataTable">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="cliente">Cliente Normalizado <span class="sort-indicator">↕</span></th>
+                                <th class="sortable" data-sort="clienteOriginal">Nome no Sistema <span class="sort-indicator">↕</span></th>
+                                <th class="sortable" data-sort="produto">Produto / Descrição <span class="sort-indicator">↕</span></th>
+                                <th class="sortable" data-sort="valor">Valor Original <span class="sort-indicator">↕</span></th>
+                                <th class="sortable" data-sort="saldo">Saldo Atual <span class="sort-indicator">↕</span></th>
+                                <th class="sortable" data-sort="data">Data & Hora <span class="sort-indicator">↕</span></th>
+                                <th>Código / Histórico</th>
+                                <th>Operador</th>
+                                <th>Qtd / Parcela</th>
+                                <th>Índice</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            <!-- Injected via JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-footer-bar">
+                    <div class="table-stat-item">
+                        <span class="text-muted">Total de Linhas:</span>
+                        <strong id="tableCount">0 registros</strong>
+                    </div>
+                    <div class="table-stat-item">
+                        <span class="text-muted">Soma do Saldo Filtrado:</span>
+                        <strong class="text-accent" id="tableTotal">R$ 0,00</strong>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Client Details & WhatsApp Billing Modal -->
+    <div class="modal-backdrop hidden" id="modalOverlay" role="dialog" aria-modal="true">
+        <div class="modal-dialog">
+            <div class="modal-top">
+                <div class="modal-header-info">
+                    <div class="modal-badge-row">
+                        <span class="modal-client-badge">Extrato Detalhado</span>
+                        <span class="modal-shop-name">Divino Pão</span>
+                    </div>
+                    <h2 class="modal-client-title" id="modalClientName">Nome do Cliente</h2>
+                    <p class="modal-client-subtitle" id="modalClientSummary">0 lançamentos registrados</p>
+                </div>
+                <button class="modal-close-button" id="modalClose" aria-label="Fechar Modal">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+
+            <div class="modal-content-scroll">
+                <!-- Summary Metrics Grid -->
+                <div class="modal-kpi-grid" id="modalStats">
+                    <!-- KPI Cards generated dynamically -->
+                </div>
+
+                <!-- Product Aggregation Preview -->
+                <div class="modal-products-summary" id="modalProductsSummary">
+                    <!-- Top bought products overview -->
+                </div>
+
+                <!-- Detailed Granular Items Table -->
+                <div class="modal-table-container">
+                    <div class="modal-table-header">
+                        <h4>Histórico de Compras Fiadas</h4>
+                        <span class="text-muted" id="modalItemsCount">Lista completa de itens</span>
+                    </div>
+                    <div class="modal-table-scroll">
+                        <table class="data-table modal-data-table">
                             <thead>
                                 <tr>
-                                    <th>Produto</th>
+                                    <th>Item / Produto</th>
                                     <th>Valor</th>
-                                    <th>Saldo</th>
-                                    <th>Data</th>
+                                    <th>Saldo a Pagar</th>
+                                    <th>Data & Hora</th>
                                     <th>Código</th>
-                                    <th>Registrado por</th>
-                                    <th>Parcela</th>
+                                    <th>Operador</th>
+                                    <th>Qtd / Parcela</th>
                                 </tr>
                             </thead>
                             <tbody id="modalTableBody">
+                                <!-- Injected via JavaScript -->
                             </tbody>
                         </table>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button class="btn btn-primary" id="btnCopiarCobranca">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                        Copiar texto de cobrança
-                    </button>
-                    <button class="btn btn-ghost" id="btnExportarCliente">
+            </div>
+
+            <!-- Modal Action Footer -->
+            <div class="modal-bottom-actions">
+                <div class="modal-actions-left">
+                    <button class="btn btn-secondary" id="btnExportarCliente">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-                        Exportar detalhes
+                        Baixar Excel (CSV)
                     </button>
+                </div>
+                <div class="modal-actions-right">
+                    <button class="btn btn-success" id="btnCopiarCobranca">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                        Copiar Mensagem WhatsApp
+                    </button>
+                    <button class="btn btn-secondary" id="btnFecharModal">Fechar</button>
                 </div>
             </div>
         </div>
+    </div>
 
-        <!-- Toast -->
-        <div class="toast hidden" id="toast">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            <span id="toastMsg">Copiado!</span>
+    <!-- Notification Toast -->
+    <div class="toast-notification hidden" id="toast" role="status" aria-live="polite">
+        <div class="toast-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
-    </main>
+        <span class="toast-message" id="toastMsg">Operação realizada com sucesso!</span>
+    </div>
 
+    <!-- System Footer -->
+    <footer class="footer">
+        <div class="footer-container">
+            <div class="footer-left">
+                <div class="footer-logo-row">
+                    <img src="https://i.postimg.cc/X7znNcFg/qrzfood.png" alt="QRZ Food" class="footer-logo" onerror="this.style.display='none'">
+                    <span class="footer-system">QRZ Food • Sistema de Gestão</span>
+                </div>
+                <p class="footer-sub">Módulo de Cobrança e Contas a Receber — <strong>Padaria Divino Pão</strong></p>
+            </div>
+            <div class="footer-center">
+                <span class="footer-status-pill">
+                    <span class="status-dot"></span> 587 registros sincronizados
+                </span>
+            </div>
+            <div class="footer-right">
+                <p class="developed-by">
+                    Desenvolvido por <a href="https://qrztech.com" target="_blank" rel="noopener noreferrer" class="qrz-link"><strong>QRZ Tech</strong> (qrztech.com)</a>
+                </p>
+                <p class="footer-copy">© 2026 QRZ Tech. Todos os direitos reservados.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
     <script src="dados.js"></script>
     <script src="app.js"></script>
 </body>
