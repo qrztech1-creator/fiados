@@ -7,7 +7,7 @@ Sistema completo de controle de fiados, extrato granular e gestão de contas a r
 ## ✨ Funcionalidades
 - **Branding Personalizado:** Identidade visual QRZ Food adaptada para a Padaria Divino Pão.
 - **Modo Claro e Modo Escuro:** Alternância de tema com detecção automática do sistema e persistência em `localStorage`.
-- **Normalização Inteligente de Clientes:** Agrupamento de 82 variações de grafia em clientes únicos sem perda de nenhum dos 587 registros.
+- **Normalização Inteligente de Clientes:** Agrupamento de variações de grafia em clientes únicos sem perda de nenhum registro da base.
 - **Visualização em Cards:** Ordenação dinâmica por maior débito, menor débito, ordem alfabética ou quantidade de itens.
 - **Visualização em Tabela Completa:** Lista com ordenação instantânea por qualquer coluna (Cliente, Produto, Valor, Saldo, Data).
 - **Atalhos & Filtros Rápidos:** Presets de busca ("Todos", "Mês Atual", "Saldo > R$ 50", "Top 10 Maiores").

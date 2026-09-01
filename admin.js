@@ -92,17 +92,31 @@ async function loadAndRenderClients() {
         const clientUrl = `${baseUrl}cliente.html?c=${encodeURIComponent(client.id)}`;
         
         // Verifica se há dados no IndexedDB ou se usa arquivo estático
-        let countText = 'Planilha vinculada';
+        let countText = 'Carregando...';
         try {
             const data = await dbGetClientData(client.id);
             if (data && data.length) {
                 countText = `${data.length} registros`;
-            } else if (client.id === 'divino-pao') {
-                countText = `587 registros (padrão)`;
+            } else if (client.dataFile) {
+                try {
+                    const res = await fetch(client.dataFile + '?t=' + Date.now());
+                    if (res.ok) {
+                        const txt = await res.text();
+                        const jsonStr = txt.replace(/^const\s+EMBEDDED_DATA\s*=\s*/, '').replace(/;\s*$/, '');
+                        const parsed = JSON.parse(jsonStr);
+                        countText = `${parsed.length} registros`;
+                    } else {
+                        countText = 'Planilha vinculada';
+                    }
+                } catch {
+                    countText = 'Planilha vinculada';
+                }
             } else {
                 countText = 'Sem planilha';
             }
-        } catch {}
+        } catch {
+            countText = 'Sem planilha';
+        }
 
         const card = document.createElement('div');
         card.className = 'client-card';
