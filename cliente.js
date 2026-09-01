@@ -140,19 +140,26 @@ function normalizeClientName(raw) {
 }
 
 function initData() {
-    processedData = (rawData || []).map((row, idx) => ({
-        id: idx,
-        clienteOriginal: (row.banco || '').trim(),
-        cliente: normalizeClientName(row.banco),
-        produto: (row.fatura || row.portador || '').trim(),
-        codigo: (row.historico || '').trim(),
-        valor: parseDecimal(row.valor),
-        saldo: parseDecimal(row.saldoatual),
-        dataEmissao: row.dataemi || '',
-        usuario: (row.usuarioatual || '').trim(),
-        parcela: (row.parcela || '').trim(),
-        indice: (row.indice || '').trim(),
-    }));
+    processedData = (rawData || []).map((row, idx) => {
+        // Use indice (campo estável do banco Access) como ID primário.
+        // Se indice não existir, gera chave composta de banco+fatura+dataemi+valor para estabilidade.
+        const indice = (row.indice !== undefined && row.indice !== null && row.indice !== '') ? String(row.indice) : '';
+        const stableId = indice || `${(row.banco||'').trim()}_${(row.fatura||'').trim()}_${(row.dataemi||'')}_${(row.valor||'')}`.toLowerCase().replace(/\s+/g, '_');
+        return {
+            id: stableId,
+            _idx: idx,
+            clienteOriginal: (row.banco || '').trim(),
+            cliente: normalizeClientName(row.banco),
+            produto: (row.fatura || row.portador || '').trim(),
+            codigo: (row.historico || '').trim(),
+            valor: parseDecimal(row.valor),
+            saldo: parseDecimal(row.saldoatual),
+            dataEmissao: row.dataemi || '',
+            usuario: (row.usuarioatual || '').trim(),
+            parcela: (row.parcela || '').trim(),
+            indice: indice,
+        };
+    });
 
     buildClientGroups(processedData);
     populateFilters();
@@ -515,7 +522,7 @@ function renderModalTable(items) {
 
     tbody.querySelectorAll('.item-check').forEach(cb => {
         cb.addEventListener('change', e => {
-            const id = parseInt(e.target.dataset.id);
+            const id = e.target.dataset.id;
             if (e.target.checked) selectedItems.add(id); else selectedItems.delete(id);
         });
     });
@@ -523,7 +530,7 @@ function renderModalTable(items) {
     tbody.querySelectorAll('.btn-item-pay').forEach(btn => {
         btn.addEventListener('click', e => {
             e.stopPropagation();
-            setItemPayment(parseInt(btn.dataset.id), parseFloat(btn.dataset.saldo), 'Baixa individual');
+            setItemPayment(btn.dataset.id, parseFloat(btn.dataset.saldo), 'Baixa individual');
             refreshModal();
             showToast('Baixa registrada!');
         });
@@ -535,7 +542,7 @@ function renderModalTable(items) {
         sa.onchange = () => {
             tbody.querySelectorAll('.item-check').forEach(cb => {
                 cb.checked = sa.checked;
-                const id = parseInt(cb.dataset.id);
+                const id = cb.dataset.id;
                 if (sa.checked) selectedItems.add(id); else selectedItems.delete(id);
             });
         };
@@ -577,8 +584,9 @@ function confirmarBaixa() {
     }
 
     let remaining = valor;
+    const itemMap = new Map(processedData.map(d => [d.id, d]));
     const targets = baixaMode === 'selected' && selectedItems.size > 0
-        ? [...selectedItems].map(id => processedData[id]).filter(Boolean)
+        ? [...selectedItems].map(id => itemMap.get(id)).filter(Boolean)
         : (clientGroups[currentModalClient] || []).sort((a, b) => {
             const da = toDateObj(a.dataEmissao), db = toDateObj(b.dataEmissao);
             if (!da && !db) return 0; if (!da) return 1; if (!db) return -1; return da - db;
