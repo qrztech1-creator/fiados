@@ -1,128 +1,145 @@
-// ============================================================
-// QRZ FOOD — PAINEL ADMINISTRATIVO (admin.js)
-// Gestão completa de clientes, senhas e planilhas via interface
-// ============================================================
+// QRZ Food - Painel Administrativo
 
-let allClients = [];
-let currentUploadClientId = null;
-let newClientExcelData = null;
+let currentClients = [];
+let uploadParsedData = null; // Para armazenar dados da planilha durante a criação do cliente
+let uploadTargetClientId = null; // Para upload de planilha via modal de upload
+let baseUrl = window.location.origin + window.location.pathname.replace('index.html', '');
 
-// ============================================================
-// INICIALIZAÇÃO & LOGIN
-// ============================================================
-async function initAdminLogin() {
-    if (sessionStorage.getItem('qrzfood_admin') === 'ok') {
-        showAdminApp();
-        return;
-    }
+// Inicialização
+document.addEventListener('DOMContentLoaded', async () => {
+    initTheme();
+    setupThemeToggle();
+    setupLogin();
+    setupClientForm();
+    setupUploadModal();
+    setupBackup();
 
-    const form = document.getElementById('loginForm');
-    const togglePw = document.getElementById('togglePw');
-    const pwInput = document.getElementById('loginPassword');
+    await checkAuth();
+});
 
-    togglePw.addEventListener('click', () => {
-        pwInput.type = pwInput.type === 'password' ? 'text' : 'password';
-    });
+// Autenticação
+async function checkAuth() {
+    try {
+        const { data: { session }, error } = await sb.auth.getSession();
+        if (error) throw error;
 
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const email = document.getElementById('loginEmail').value.trim().toLowerCase();
-        const pw = document.getElementById('loginPassword').value;
-        const hash = await sha256(pw);
-
-        if (email === ADMIN_EMAIL && hash === ADMIN_PASSWORD_HASH) {
-            sessionStorage.setItem('qrzfood_admin', 'ok');
-            showAdminApp();
+        if (session) {
+            showApp();
         } else {
-            document.getElementById('loginError').classList.remove('hidden');
-            pwInput.value = '';
-            pwInput.focus();
+            showLogin();
         }
-    });
+    } catch (err) {
+        console.error('Erro ao verificar sessão:', err);
+        showLogin();
+    }
 }
 
-async function showAdminApp() {
+function showLogin() {
+    document.getElementById('loginOverlay').classList.remove('hidden');
+    document.getElementById('appWrapper').classList.add('hidden');
+}
+
+function showApp() {
     document.getElementById('loginOverlay').classList.add('hidden');
     document.getElementById('appWrapper').classList.remove('hidden');
-    await checkInitialSeed();
-    await loadAndRenderClients();
+    loadClients();
 }
 
-// Inicializa a base inicial do Divino Pão caso o banco esteja novo
-async function checkInitialSeed() {
-    try {
-        const existing = await dbGetClient('divino-pao');
-        if (!existing) {
-            await dbSaveClient({
-                id: 'divino-pao',
-                name: 'Padaria Divino Pão',
-                shortName: 'Divino Pão',
-                passwordHash: 'a534e5db0a1c9a7ed4e97ee451f0b3dae7dd0fa6b6686f777b27fcfb86607157',
-                color: '#e8590c',
-                dataFile: 'data/divino-pao.js'
-            });
+function setupLogin() {
+    const loginForm = document.getElementById('loginForm');
+    const loginEmail = document.getElementById('loginEmail');
+    const loginPassword = document.getElementById('loginPassword');
+    const loginError = document.getElementById('loginError');
+    const togglePw = document.getElementById('togglePw');
+    const btnLogout = document.getElementById('btnLogout');
+
+    togglePw.addEventListener('click', () => {
+        const type = loginPassword.getAttribute('type') === 'password' ? 'text' : 'password';
+        loginPassword.setAttribute('type', type);
+    });
+
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        loginError.classList.add('hidden');
+        const email = loginEmail.value.trim();
+        const password = loginPassword.value;
+        const btn = loginForm.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = 'Entrando...';
+
+        try {
+            const { data, error } = await sb.auth.signInWithPassword({ email, password });
+            if (error) throw error;
+            showApp();
+        } catch (err) {
+            console.error('Erro no login:', err);
+            loginError.classList.remove('hidden');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Entrar no Painel';
         }
-    } catch (e) {
-        console.error('Seed error:', e);
+    });
+
+    btnLogout.addEventListener('click', async () => {
+        await sb.auth.signOut();
+        showLogin();
+    });
+}
+
+// Tema
+function setupThemeToggle() {
+    const themeToggle = document.getElementById('themeToggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('click', toggleTheme);
     }
 }
 
-// ============================================================
-// RENDERIZAÇÃO DOS CLIENTES
-// ============================================================
-async function loadAndRenderClients() {
-    allClients = await dbGetAllClients();
+// Gestão de Clientes
+async function loadClients() {
+    const grid = document.getElementById('clientsGrid');
+    grid.innerHTML = '<p>Carregando clientes...</p>';
+
+    try {
+        const { data, error } = await sb.from('clients').select('*').order('name');
+        if (error) throw error;
+
+        currentClients = data;
+        renderClients(data);
+    } catch (err) {
+        console.error('Erro ao carregar clientes:', err);
+        grid.innerHTML = '<p>Erro ao carregar clientes. Tente novamente.</p>';
+    }
+}
+
+async function renderClients(clients) {
     const grid = document.getElementById('clientsGrid');
     grid.innerHTML = '';
 
-    if (!allClients.length) {
+    if (clients.length === 0) {
         grid.innerHTML = `
             <div class="empty-state" style="grid-column:1/-1">
                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 <h3>Nenhum cliente cadastrado</h3>
-                <p>Clique no botão <strong>+ Novo Cliente</strong> acima para criar seu primeiro cliente.</p>
+                <p>Clique no botao <strong>+ Novo Cliente</strong> acima para criar seu primeiro cliente.</p>
             </div>
         `;
         return;
     }
 
-    const baseUrl = window.location.href.replace(/\/[^/]*$/, '/');
-
-    for (const client of allClients) {
-        const clientUrl = `${baseUrl}cliente.html?c=${encodeURIComponent(client.id)}`;
+    for (const client of clients) {
+        // Buscar contagem de registros no Supabase
+        const { count, error } = await sb.from('records')
+            .select('*', { count: 'exact', head: true })
+            .eq('client_id', client.id);
         
-        // Verifica se há dados no IndexedDB ou se usa arquivo estático
-        let countText = 'Carregando...';
-        try {
-            const data = await dbGetClientData(client.id);
-            if (data && data.length) {
-                countText = `${data.length} registros`;
-            } else if (client.dataFile) {
-                try {
-                    const res = await fetch(client.dataFile + '?t=' + Date.now());
-                    if (res.ok) {
-                        const txt = await res.text();
-                        const jsonStr = txt.replace(/^const\s+EMBEDDED_DATA\s*=\s*/, '').replace(/;\s*$/, '');
-                        const parsed = JSON.parse(jsonStr);
-                        countText = `${parsed.length} registros`;
-                    } else {
-                        countText = 'Planilha vinculada';
-                    }
-                } catch {
-                    countText = 'Planilha vinculada';
-                }
-            } else {
-                countText = 'Sem planilha';
-            }
-        } catch {
-            countText = 'Sem planilha';
-        }
+        const recordCount = error ? 0 : (count || 0);
+        const countText = `${recordCount} registros`;
+        const clientUrl = `${baseUrl}cliente.html?c=${encodeURIComponent(client.id)}`;
+        const clientColor = client.color || '#e8590c';
 
         const card = document.createElement('div');
         card.className = 'client-card';
         card.style.cursor = 'default';
-        const clientColor = client.color || '#e8590c';
-
         card.innerHTML = `
             <div class="card-top">
                 <div>
@@ -130,7 +147,7 @@ async function loadAndRenderClients() {
                     <span class="card-status-tag tag-pending">${escapeHTML(client.id)}</span>
                 </div>
                 <div class="card-total-badge" style="background:${clientColor}15;color:${clientColor};border-color:${clientColor}40;font-size:.85rem">
-                    ${escapeHTML(client.shortName)}
+                    ${escapeHTML(client.short_name)}
                 </div>
             </div>
 
@@ -178,363 +195,407 @@ async function loadAndRenderClients() {
         grid.appendChild(card);
     }
 
-    // Eventos dos botões dos cards
+    // Ações dos botões
     grid.querySelectorAll('.btn-visit').forEach(btn => {
         btn.addEventListener('click', () => window.open(btn.dataset.url, '_blank'));
     });
+
     grid.querySelectorAll('.btn-copy-link').forEach(btn => {
         btn.addEventListener('click', () => {
-            navigator.clipboard.writeText(btn.dataset.url).then(() => showToast('Link copiado com sucesso!'));
+            navigator.clipboard.writeText(btn.dataset.url);
+            showToast('Link copiado!');
         });
     });
+
+    grid.querySelectorAll('.btn-edit-client').forEach(btn => {
+        btn.addEventListener('click', () => openEditClient(btn.dataset.id));
+    });
+
+    grid.querySelectorAll('.btn-delete-client').forEach(btn => {
+        btn.addEventListener('click', () => deleteClient(btn.dataset.id));
+    });
+
     grid.querySelectorAll('.btn-upload-excel').forEach(btn => {
         btn.addEventListener('click', () => openUploadModal(btn.dataset.id, btn.dataset.name));
     });
-    grid.querySelectorAll('.btn-edit-client').forEach(btn => {
-        btn.addEventListener('click', () => openEditClientModal(btn.dataset.id));
-    });
-    grid.querySelectorAll('.btn-delete-client').forEach(btn => {
-        btn.addEventListener('click', () => deleteClientAction(btn.dataset.id, btn.dataset.name));
-    });
 }
 
-// ============================================================
-// MODAL: CRIAR / EDITAR CLIENTE
-// ============================================================
-function openNewClientModal() {
-    document.getElementById('clientFormTitle').textContent = 'Novo Cliente';
-    document.getElementById('formClientIdOriginal').value = '';
-    document.getElementById('formClientName').value = '';
-    document.getElementById('formClientShortName').value = '';
-    document.getElementById('formClientId').value = '';
-    document.getElementById('formClientId').disabled = false;
-    document.getElementById('formClientPassword').value = '';
-    document.getElementById('formClientColor').value = '#e8590c';
+// Formulário de Cliente (Criar/Editar)
+function setupClientForm() {
+    const modal = document.getElementById('clientFormModal');
+    const btnNovo = document.getElementById('btnNovoCliente');
+    const btnClose = document.getElementById('closeClientFormModal');
+    const btnCancel = document.getElementById('btnCancelClientForm');
+    const form = document.getElementById('clientForm');
     
-    document.querySelectorAll('.color-dot').forEach(d => {
-        d.classList.toggle('active', d.dataset.color === '#e8590c');
+    const inputName = document.getElementById('formClientName');
+    const inputShortName = document.getElementById('formClientShortName');
+    const inputId = document.getElementById('formClientId');
+    const urlPreview = document.getElementById('urlPreviewText');
+    const btnGenPassword = document.getElementById('btnGenPassword');
+    const inputPassword = document.getElementById('formClientPassword');
+    
+    const colorDots = document.querySelectorAll('.color-dot');
+    const inputColor = document.getElementById('formClientColor');
+
+    // Modal aberto/fechado
+    btnNovo.addEventListener('click', () => {
+        form.reset();
+        document.getElementById('formClientIdOriginal').value = '';
+        document.getElementById('clientFormTitle').textContent = 'Novo Cliente';
+        document.getElementById('formClientPassword').required = true;
+        uploadParsedData = null;
+        updateUploadStatusForm();
+        updateUrlPreview();
+        modal.classList.remove('hidden');
     });
 
-    newClientExcelData = null;
-    document.getElementById('formDropzone').classList.remove('hidden');
-    document.getElementById('formUploadStatus').classList.add('hidden');
-    document.getElementById('formUploadText').textContent = 'Clique ou arraste o .xlsx aqui';
-    updateUrlPreview('');
+    const closeModal = () => modal.classList.add('hidden');
+    btnClose.addEventListener('click', closeModal);
+    btnCancel.addEventListener('click', closeModal);
 
-    document.getElementById('clientFormModal').classList.remove('hidden');
-    document.getElementById('formClientName').focus();
-}
-
-async function openEditClientModal(clientId) {
-    const client = await dbGetClient(clientId);
-    if (!client) return;
-
-    document.getElementById('clientFormTitle').textContent = `Editar — ${client.name}`;
-    document.getElementById('formClientIdOriginal').value = client.id;
-    document.getElementById('formClientName').value = client.name;
-    document.getElementById('formClientShortName').value = client.shortName;
-    document.getElementById('formClientId').value = client.id;
-    document.getElementById('formClientId').disabled = true; // não muda id na edição
-    document.getElementById('formClientPassword').value = '';
-    document.getElementById('formClientPassword').placeholder = '(Deixe em branco para manter a senha atual)';
-    document.getElementById('formClientColor').value = client.color || '#e8590c';
-
-    document.querySelectorAll('.color-dot').forEach(d => {
-        d.classList.toggle('active', d.dataset.color === (client.color || '#e8590c'));
+    // Auto-fill e URL Preview
+    inputName.addEventListener('input', () => {
+        if (!document.getElementById('formClientIdOriginal').value) { // Só preenche se for novo
+            if (!inputShortName.value || inputShortName.value === slugify(inputName.value, true)) {
+                inputShortName.value = inputName.value.split(' ')[0];
+            }
+            if (!inputId.value || inputId.value === slugify(inputName.value)) {
+                inputId.value = slugify(inputName.value);
+                updateUrlPreview();
+            }
+        }
     });
 
-    newClientExcelData = null;
-    document.getElementById('formDropzone').classList.remove('hidden');
-    document.getElementById('formUploadStatus').classList.add('hidden');
-    document.getElementById('formUploadText').textContent = 'Substituir planilha (opcional)';
-    updateUrlPreview(client.id);
+    inputId.addEventListener('input', updateUrlPreview);
 
-    document.getElementById('clientFormModal').classList.remove('hidden');
-}
-
-function closeClientFormModal() {
-    document.getElementById('clientFormModal').classList.add('hidden');
-    newClientExcelData = null;
-}
-
-function updateUrlPreview(slug) {
-    const baseUrl = window.location.href.replace(/\/[^/]*$/, '/');
-    document.getElementById('urlPreviewText').textContent = `${baseUrl}cliente.html?c=${slug || 'identificador'}`;
-}
-
-// Salvar Cliente (Criar ou Editar)
-async function handleClientFormSubmit(e) {
-    e.preventDefault();
-
-    const originalId = document.getElementById('formClientIdOriginal').value;
-    const isEdit = !!originalId;
-    const name = document.getElementById('formClientName').value.trim();
-    const shortName = document.getElementById('formClientShortName').value.trim();
-    const id = (isEdit ? originalId : document.getElementById('formClientId').value.trim()).toLowerCase();
-    const password = document.getElementById('formClientPassword').value;
-    const color = document.getElementById('formClientColor').value;
-
-    if (!name || !shortName || !id) {
-        showToast('Preencha os campos obrigatórios.');
-        return;
+    function updateUrlPreview() {
+        urlPreview.textContent = `.../cliente.html?c=${inputId.value}`;
     }
 
-    let passwordHash = '';
-    if (password) {
-        passwordHash = await sha256(password);
-    } else if (isEdit) {
-        const existing = await dbGetClient(originalId);
-        passwordHash = existing ? existing.passwordHash : '';
-    } else {
-        showToast('Defina uma senha para o cliente.');
-        return;
-    }
+    // Gerar Senha
+    btnGenPassword.addEventListener('click', () => {
+        const short = inputShortName.value || 'Cliente';
+        const year = new Date().getFullYear();
+        inputPassword.value = `${short}@${year}`;
+    });
 
-    const clientObj = {
-        id,
-        name,
-        shortName,
-        passwordHash,
-        color
-    };
+    // Cores
+    colorDots.forEach(dot => {
+        dot.addEventListener('click', () => {
+            colorDots.forEach(d => d.classList.remove('active'));
+            dot.classList.add('active');
+            inputColor.value = dot.dataset.color;
+        });
+    });
 
-    await dbSaveClient(clientObj);
+    inputColor.addEventListener('input', () => {
+        colorDots.forEach(d => d.classList.remove('active'));
+    });
 
-    // Se uma planilha foi anexada no modal
-    if (newClientExcelData && newClientExcelData.length) {
-        await dbSaveClientData(id, newClientExcelData);
-    }
+    // Planilha (no form de criação)
+    const dropzone = document.getElementById('formDropzone');
+    const fileInput = document.getElementById('formFileInput');
 
-    closeClientFormModal();
-    await loadAndRenderClients();
-    showToast(`Cliente ${shortName} salvo com sucesso!`);
-}
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.style.borderColor = 'var(--primary-color)'; });
+    dropzone.addEventListener('dragleave', () => dropzone.style.borderColor = 'var(--border-color)');
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.style.borderColor = 'var(--border-color)';
+        if (e.dataTransfer.files.length) handleFileSelectForm(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) handleFileSelectForm(e.target.files[0]);
+    });
 
-// Excluir Cliente
-async function deleteClientAction(clientId, clientName) {
-    if (confirm(`Tem certeza que deseja excluir o cliente "${clientName}"?\nTodos os dados de fiados e acessos serão removidos.`)) {
-        await dbDeleteClient(clientId);
-        await loadAndRenderClients();
-        showToast(`Cliente "${clientName}" excluído.`);
-    }
-}
+    // Salvar
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btnSave = document.getElementById('btnSaveClient');
+        btnSave.disabled = true;
+        btnSave.textContent = 'Salvando...';
 
-// ============================================================
-// MODAL: UPLOAD DE PLANILHA EM CLIENTE EXISTENTE
-// ============================================================
-function openUploadModal(clientId, clientName) {
-    currentUploadClientId = clientId;
-    document.getElementById('uploadTitle').textContent = `Atualizar Planilha — ${clientName}`;
-    document.getElementById('uploadSubtitle').textContent = `Envie o .xlsx para atualizar a base de dados de ${clientName}`;
-    document.getElementById('uploadStatus').classList.add('hidden');
-    document.getElementById('dropzone').classList.remove('hidden');
-    document.getElementById('uploadOverlay').classList.remove('hidden');
-}
-
-function closeUploadModal() {
-    document.getElementById('uploadOverlay').classList.add('hidden');
-    currentUploadClientId = null;
-}
-
-// Leitura de Excel universal via XLSX.js
-function parseExcelFile(file, onSuccess) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
         try {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-            const sheetName = workbook.SheetNames[0];
-            const sheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+            const inputEmail = document.getElementById('formClientEmail');
+            const clientData = {
+                id: inputId.value.trim(),
+                name: inputName.value.trim(),
+                short_name: inputShortName.value.trim(),
+                email: inputEmail ? inputEmail.value.trim() : '',
+                color: inputColor.value
+            };
 
-            jsonData.forEach(row => {
-                Object.keys(row).forEach(key => {
-                    if (row[key] instanceof Date) {
-                        row[key] = row[key].toISOString().replace('T', ' ').substring(0, 19);
-                    }
-                });
-            });
+            if (inputPassword.value) {
+                clientData.password_hash = await sha256(inputPassword.value);
+            }
 
-            onSuccess(jsonData);
+            if (isEdit) {
+                const { error } = await sb.from('clients').update(clientData).eq('id', originalId);
+                if (error) throw error;
+                showToast('Cliente atualizado!');
+            } else {
+                clientData.name_map = {}; // default
+                const { error } = await sb.from('clients').insert([clientData]);
+                if (error) throw error;
+                showToast('Cliente criado!');
+
+                if (uploadParsedData && uploadParsedData.length > 0) {
+                    await processAndUploadRecords(clientData.id, uploadParsedData, {});
+                }
+            }
+
+            closeModal();
+            loadClients();
         } catch (err) {
             console.error(err);
-            showToast('Erro ao ler a planilha. Verifique o formato do arquivo.');
+            showToast('Erro ao salvar cliente');
+        } finally {
+            btnSave.disabled = false;
+            btnSave.textContent = 'Salvar Cliente';
+        }
+    });
+}
+
+function openEditClient(id) {
+    const client = currentClients.find(c => c.id === id);
+    if (!client) return;
+
+    document.getElementById('formClientIdOriginal').value = client.id;
+    document.getElementById('formClientName').value = client.name;
+    document.getElementById('formClientShortName').value = client.short_name;
+    document.getElementById('formClientId').value = client.id;
+    
+    const inputEmail = document.getElementById('formClientEmail');
+    if (inputEmail) inputEmail.value = client.email || '';
+    
+    document.getElementById('urlPreviewText').textContent = `.../cliente.html?c=${client.id}`;
+    
+    document.getElementById('formClientPassword').value = '';
+    document.getElementById('formClientPassword').required = false; // Opcional na edição
+    
+    document.getElementById('formClientColor').value = client.color || '#e8590c';
+    document.querySelectorAll('.color-dot').forEach(d => {
+        d.classList.toggle('active', d.dataset.color === client.color);
+    });
+
+    document.getElementById('clientFormTitle').textContent = 'Editar Cliente';
+    uploadParsedData = null;
+    updateUploadStatusForm();
+
+    document.getElementById('clientFormModal').classList.remove('hidden');
+}
+
+async function deleteClient(id) {
+    if (!confirm(`Tem certeza que deseja excluir o cliente ${id} e todos os seus dados?`)) return;
+    
+    try {
+        const { error } = await sb.from('clients').delete().eq('id', id);
+        if (error) throw error;
+        showToast('Cliente excluído!');
+        loadClients();
+    } catch (err) {
+        console.error(err);
+        showToast('Erro ao excluir cliente');
+    }
+}
+
+// Upload de Planilha (No form)
+function handleFileSelectForm(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, {type: 'array'});
+            const firstSheet = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheet];
+            const json = XLSX.utils.sheet_to_json(worksheet);
+            uploadParsedData = json;
+            updateUploadStatusForm();
+        } catch (err) {
+            console.error(err);
+            showToast('Erro ao ler arquivo Excel');
         }
     };
     reader.readAsArrayBuffer(file);
 }
 
-// ============================================================
-// BACKUP & RESTORE
-// ============================================================
-async function exportFullBackup() {
-    const clients = await dbGetAllClients();
-    const backupData = {
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        clients: []
-    };
+function updateUploadStatusForm() {
+    const status = document.getElementById('formUploadStatus');
+    const text = document.getElementById('formUploadStatusText');
+    const dropzone = document.getElementById('formDropzone');
 
-    for (const c of clients) {
-        const rows = await dbGetClientData(c.id);
-        backupData.clients.push({
-            metadata: c,
-            rows: rows || []
-        });
+    if (uploadParsedData) {
+        dropzone.classList.add('hidden');
+        status.classList.remove('hidden');
+        text.textContent = `${uploadParsedData.length} registros prontos para envio.`;
+    } else {
+        dropzone.classList.remove('hidden');
+        status.classList.add('hidden');
+        document.getElementById('formFileInput').value = '';
     }
-
-    const json = JSON.stringify(backupData, null, 2);
-    const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `qrzfood_backup_${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('Backup exportado com sucesso!');
 }
 
-// ============================================================
-// EVENT LISTENERS GLOBAIS
-// ============================================================
-document.addEventListener('DOMContentLoaded', () => {
-    initTheme();
-    initAdminLogin();
-
-    document.getElementById('themeToggle').addEventListener('click', toggleTheme);
-    document.getElementById('btnLogout').addEventListener('click', () => {
-        sessionStorage.removeItem('qrzfood_admin');
-        document.getElementById('appWrapper').classList.add('hidden');
-        document.getElementById('loginOverlay').classList.remove('hidden');
-    });
-
-    // Abrir Modal Novo Cliente
-    document.getElementById('btnNovoCliente').addEventListener('click', openNewClientModal);
-    document.getElementById('closeClientFormModal').addEventListener('click', closeClientFormModal);
-    document.getElementById('btnCancelClientForm').addEventListener('click', closeClientFormModal);
-    document.getElementById('clientFormModal').addEventListener('click', e => {
-        if (e.target === e.currentTarget) closeClientFormModal();
-    });
-
-    // Auto slug e geração de nome curto
-    document.getElementById('formClientName').addEventListener('input', e => {
-        const val = e.target.value;
-        const originalId = document.getElementById('formClientIdOriginal').value;
-        if (!originalId) {
-            const slug = slugify(val);
-            document.getElementById('formClientId').value = slug;
-            updateUrlPreview(slug);
-
-            if (!document.getElementById('formClientShortName').value || document.getElementById('formClientShortName').value === val.slice(0, -1)) {
-                document.getElementById('formClientShortName').value = val.split(' ')[0];
-            }
-        }
-    });
-
-    document.getElementById('formClientId').addEventListener('input', e => {
-        const slug = slugify(e.target.value);
-        e.target.value = slug;
-        updateUrlPreview(slug);
-    });
-
-    // Gerador de senha amigável
-    document.getElementById('btnGenPassword').addEventListener('click', () => {
-        const shortName = document.getElementById('formClientShortName').value.trim() || 'Cliente';
-        const cleanName = shortName.replace(/[^a-zA-Z]/g, '');
-        const year = new Date().getFullYear();
-        const gen = `${cleanName}@${year}`;
-        document.getElementById('formClientPassword').value = gen;
-        showToast(`Senha gerada: ${gen}`);
-    });
-
-    // Seletor de cores
-    document.querySelectorAll('.color-dot').forEach(dot => {
-        dot.addEventListener('click', () => {
-            document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
-            dot.classList.add('active');
-            document.getElementById('formClientColor').value = dot.dataset.color;
-        });
-    });
-    document.getElementById('formClientColor').addEventListener('input', e => {
-        document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
-    });
-
-    // Upload de Excel dentro do formulário do cliente
-    const formDropzone = document.getElementById('formDropzone');
-    const formFileInput = document.getElementById('formFileInput');
-
-    formDropzone.addEventListener('click', () => formFileInput.click());
-    formDropzone.addEventListener('dragover', e => { e.preventDefault(); formDropzone.style.borderColor = 'var(--accent)'; });
-    formDropzone.addEventListener('dragleave', () => { formDropzone.style.borderColor = ''; });
-    formDropzone.addEventListener('drop', e => {
-        e.preventDefault();
-        formDropzone.style.borderColor = '';
-        if (e.dataTransfer.files[0]) {
-            parseExcelFile(e.dataTransfer.files[0], rows => {
-                newClientExcelData = rows;
-                formDropzone.classList.add('hidden');
-                document.getElementById('formUploadStatus').classList.remove('hidden');
-                document.getElementById('formUploadStatusText').textContent = `✅ ${rows.length} registros prontos para salvar`;
-                showToast(`${rows.length} registros lidos da planilha!`);
-            });
-        }
-    });
-    formFileInput.addEventListener('change', () => {
-        if (formFileInput.files[0]) {
-            parseExcelFile(formFileInput.files[0], rows => {
-                newClientExcelData = rows;
-                formDropzone.classList.add('hidden');
-                document.getElementById('formUploadStatus').classList.remove('hidden');
-                document.getElementById('formUploadStatusText').textContent = `✅ ${rows.length} registros prontos para salvar`;
-                showToast(`${rows.length} registros lidos da planilha!`);
-            });
-        }
-    });
-
-    // Submissão do formulário do cliente
-    document.getElementById('clientForm').addEventListener('submit', handleClientFormSubmit);
-
-    // Modal de Upload Direto em cliente existente
-    const uploadOverlay = document.getElementById('uploadOverlay');
+// Upload de Planilha (Modal avulso)
+function setupUploadModal() {
+    const modal = document.getElementById('uploadOverlay');
+    const btnClose = document.getElementById('uploadClose');
+    const btnClose2 = document.getElementById('btnCloseUpload');
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
 
-    document.getElementById('uploadClose').addEventListener('click', closeUploadModal);
-    document.getElementById('btnCloseUpload').addEventListener('click', closeUploadModal);
-    uploadOverlay.addEventListener('click', e => { if (e.target === e.currentTarget) closeUploadModal(); });
+    const closeModal = () => modal.classList.add('hidden');
+    btnClose.addEventListener('click', closeModal);
+    btnClose2.addEventListener('click', closeModal);
 
     dropzone.addEventListener('click', () => fileInput.click());
-    dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.style.borderColor = 'var(--accent)'; });
-    dropzone.addEventListener('dragleave', () => { dropzone.style.borderColor = ''; });
-    dropzone.addEventListener('drop', e => {
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.style.borderColor = 'var(--primary-color)'; });
+    dropzone.addEventListener('dragleave', () => dropzone.style.borderColor = 'var(--border-color)');
+    dropzone.addEventListener('drop', (e) => {
         e.preventDefault();
-        dropzone.style.borderColor = '';
-        if (e.dataTransfer.files[0] && currentUploadClientId) {
-            parseExcelFile(e.dataTransfer.files[0], async rows => {
-                await dbSaveClientData(currentUploadClientId, rows);
-                dropzone.classList.add('hidden');
-                document.getElementById('uploadStatus').classList.remove('hidden');
-                document.getElementById('uploadStatusText').textContent = `✅ ${rows.length} registros atualizados com sucesso!`;
-                await loadAndRenderClients();
-                showToast(`${rows.length} registros atualizados!`);
-            });
-        }
+        dropzone.style.borderColor = 'var(--border-color)';
+        if (e.dataTransfer.files.length) handleFileUploadAvulso(e.dataTransfer.files[0]);
     });
-    fileInput.addEventListener('change', () => {
-        if (fileInput.files[0] && currentUploadClientId) {
-            parseExcelFile(fileInput.files[0], async rows => {
-                await dbSaveClientData(currentUploadClientId, rows);
-                dropzone.classList.add('hidden');
-                document.getElementById('uploadStatus').classList.remove('hidden');
-                document.getElementById('uploadStatusText').textContent = `✅ ${rows.length} registros atualizados com sucesso!`;
-                await loadAndRenderClients();
-                showToast(`${rows.length} registros atualizados!`);
-            });
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) handleFileUploadAvulso(e.target.files[0]);
+    });
+}
+
+function openUploadModal(clientId, clientName) {
+    uploadTargetClientId = clientId;
+    document.getElementById('uploadSubtitle').textContent = `Cliente: ${clientName}`;
+    document.getElementById('uploadOverlay').classList.remove('hidden');
+    document.getElementById('uploadStatus').classList.add('hidden');
+    document.getElementById('dropzone').classList.remove('hidden');
+    document.getElementById('fileInput').value = '';
+}
+
+function handleFileUploadAvulso(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        try {
+            document.getElementById('dropzone').classList.add('hidden');
+            const status = document.getElementById('uploadStatus');
+            const statusText = document.getElementById('uploadStatusText');
+            status.classList.remove('hidden');
+            statusText.textContent = 'Processando arquivo...';
+
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, {type: 'array', cellDates: true});
+            const firstSheet = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheet];
+            const json = XLSX.utils.sheet_to_json(worksheet);
+
+            // Fetch name_map
+            const client = currentClients.find(c => c.id === uploadTargetClientId);
+            const nameMap = client ? (client.name_map || {}) : {};
+
+            await processAndUploadRecords(uploadTargetClientId, json, nameMap);
+            
+            statusText.textContent = `${json.length} registros atualizados com sucesso!`;
+            showToast('Planilha atualizada!');
+            loadClients(); // Atualiza contagem
+        } catch (err) {
+            console.error(err);
+            document.getElementById('uploadStatusText').textContent = 'Erro ao processar planilha.';
         }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+// Processamento de registros
+function normalizeName(name, nameMap) {
+    if (!name) return '';
+    name = name.trim();
+    return nameMap[name.toLowerCase()] || nameMap[name] || name.toUpperCase();
+}
+
+async function processAndUploadRecords(clientId, parsedData, nameMap) {
+    const batchId = `upload_${Date.now()}`;
+    
+    const rows = parsedData.map(row => {
+        // Conversão de data (trata se já for objeto Date ou string)
+        let dataEmi = null;
+        if (row.dataemi instanceof Date) {
+            dataEmi = row.dataemi.toISOString();
+        } else if (typeof row.dataemi === 'string') {
+            dataEmi = new Date(row.dataemi.replace(' ', 'T')).toISOString();
+        }
+
+        return {
+            client_id: clientId,
+            indice: parseInt(row.indice) || null,
+            banco: (row.banco || '').toString().trim(),
+            banco_normalized: normalizeName((row.banco || '').toString(), nameMap),
+            fatura: (row.fatura || row.portador || '').toString().trim(),
+            historico: (row.historico || '').toString().trim(),
+            valor: parseDecimal(row.valor),
+            saldo_atual: parseDecimal(row.saldoatual),
+            data_emissao: dataEmi,
+            usuario: (row.usuarioatual || '').toString().trim(),
+            parcela: (row.parcela || '').toString().trim(),
+            batch: batchId
+        };
     });
 
-    // Backup
-    document.getElementById('btnBackup').addEventListener('click', exportFullBackup);
-});
+    // Upsert in batches of 100
+    for (let i = 0; i < rows.length; i += 100) {
+        const batch = rows.slice(i, i + 100);
+        const { error } = await sb.from('records').upsert(batch, { onConflict: 'client_id,indice' });
+        if (error) throw error;
+    }
+
+    // Insert log
+    await sb.from('import_logs').insert([{
+        client_id: clientId,
+        filename: batchId,
+        record_count: rows.length,
+        imported_by: 'admin'
+    }]);
+}
+
+// Backup
+function setupBackup() {
+    const btnBackup = document.getElementById('btnBackup');
+    if (!btnBackup) return;
+
+    btnBackup.addEventListener('click', async () => {
+        btnBackup.disabled = true;
+        btnBackup.textContent = 'Gerando...';
+        
+        try {
+            const { data: clients, error: errC } = await sb.from('clients').select('*');
+            if (errC) throw errC;
+
+            const { data: records, error: errR } = await sb.from('records').select('*');
+            if (errR) throw errR;
+
+            const backupData = {
+                timestamp: new Date().toISOString(),
+                clients,
+                records
+            };
+
+            const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `qrzfood_backup_${new Date().getTime()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showToast('Backup gerado com sucesso!');
+        } catch (err) {
+            console.error('Erro no backup:', err);
+            showToast('Erro ao gerar backup');
+        } finally {
+            btnBackup.disabled = false;
+            btnBackup.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg> Backup`;
+        }
+    });
+}

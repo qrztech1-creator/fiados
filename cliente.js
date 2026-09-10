@@ -1,573 +1,649 @@
-// ============================================================
-// QRZ FOOD — CLIENT VIEW (cliente.js)
-// Visualização de fiados dinâmica por cliente (IndexedDB / Estático)
-// ============================================================
-
 let clientConfig = null;
 let clientNameMap = {};
-let rawData = [], processedData = [], clientGroups = {};
+let rawRecords = [];
+let processedData = [];
+let clientGroups = {};
+let paymentsMap = {};
+let paymentsData = [];
+let selectedItems = new Set();
+let currentModalClient = '';
 let currentSort = { key: 'cliente', dir: 'asc' };
 let currentCardSort = 'debt-desc';
 let activePreset = 'all';
-let chartInstances = {};
-let currentModalClient = '';
-let selectedItems = new Set();
+let chartInstances = { daily: null, top: null, prod: null };
+let baixaMode = 'all';
 
-// ============================================================
-// IDENTIFICAÇÃO DO CLIENTE NA URL
-// ============================================================
-function getClientIdFromURL() {
-    const params = new URLSearchParams(window.location.search);
-    return (params.get('c') || params.get('client') || '').toLowerCase().trim();
-}
-
-// ============================================================
-// LOGIN DO CLIENTE (apenas senha)
-// ============================================================
-async function initClientLogin() {
-    const clientId = getClientIdFromURL();
-
+document.addEventListener('DOMContentLoaded', async () => {
+    initTheme();
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const clientId = urlParams.get('c') || urlParams.get('client');
+    
     if (!clientId) {
-        document.getElementById('loginSubtitle').textContent = 'Nenhum cliente especificado na URL.';
-        document.getElementById('loginForm').classList.add('hidden');
+        document.getElementById('loginSubtitle').textContent = 'Link de cliente invalido.';
         return;
     }
-
-    clientConfig = await dbGetClient(clientId);
-
-    if (!clientConfig) {
-        document.getElementById('loginSubtitle').textContent = `Cliente "${clientId}" não encontrado.`;
-        document.getElementById('loginForm').classList.add('hidden');
-        return;
+    
+    try {
+        const { data: clientData, error } = await sb.from('clients').select('*').eq('id', clientId).single();
+        if (error || !clientData) {
+            document.getElementById('loginSubtitle').textContent = 'Cliente nao encontrado.';
+            return;
+        }
+        clientConfig = clientData;
+        clientNameMap = clientConfig.name_map || {};
+        
+        document.getElementById('loginTitle').textContent = clientConfig.short_name || clientConfig.name;
+        
+        if (clientConfig.color) {
+            document.documentElement.style.setProperty('--accent', clientConfig.color);
+        }
+        
+        const sessionKey = 'qrzfood_client_' + clientId;
+        if (sessionStorage.getItem(sessionKey) === 'ok') {
+            await initApp();
+        }
+    } catch (e) {
+        console.error(e);
+        document.getElementById('loginSubtitle').textContent = 'Erro ao carregar dados do cliente.';
     }
-
-    document.getElementById('loginTitle').textContent = clientConfig.shortName || clientConfig.name;
-    document.getElementById('loginSubtitle').textContent = `${clientConfig.name} — Acesso Restrito`;
-    document.title = `QRZ Food — ${clientConfig.shortName || clientConfig.name}`;
-
-    // Aplica cor personalizada do cliente
-    if (clientConfig.color) {
-        document.documentElement.style.setProperty('--accent', clientConfig.color);
-    }
-
-    // Já autenticado nesta sessão?
-    if (sessionStorage.getItem('qrzfood_client_' + clientId) === 'ok') {
-        showClientApp();
-        return;
-    }
-
-    const form = document.getElementById('loginForm');
-    const pwInput = document.getElementById('loginPassword');
-    const togglePw = document.getElementById('togglePw');
-    togglePw.addEventListener('click', () => {
-        pwInput.type = pwInput.type === 'password' ? 'text' : 'password';
-    });
-
-    form.addEventListener('submit', async (e) => {
+    
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const hash = await sha256(pwInput.value);
-        if (hash === clientConfig.passwordHash) {
-            sessionStorage.setItem('qrzfood_client_' + clientId, 'ok');
-            showClientApp();
+        const pw = document.getElementById('loginPassword').value;
+        if (!pw) return;
+        
+        const hashed = await sha256(pw);
+        if (hashed === clientConfig.password_hash) {
+            sessionStorage.setItem('qrzfood_client_' + clientConfig.id, 'ok');
+            await initApp();
         } else {
             document.getElementById('loginError').classList.remove('hidden');
-            pwInput.value = '';
-            pwInput.focus();
-            pwInput.classList.add('shake');
-            setTimeout(() => pwInput.classList.remove('shake'), 500);
         }
     });
-}
+    
+    document.getElementById('togglePw').addEventListener('click', () => {
+        const pwInput = document.getElementById('loginPassword');
+        pwInput.type = pwInput.type === 'password' ? 'text' : 'password';
+    });
+    
+    setupEventListeners();
+});
 
-function showClientApp() {
+async function initApp() {
     document.getElementById('loginOverlay').classList.add('hidden');
     document.getElementById('appWrapper').classList.remove('hidden');
-    document.getElementById('headerBadge').textContent = clientConfig.shortName || clientConfig.name;
-    document.getElementById('footerClientName').innerHTML = `Módulo de Cobrança — <strong>${escapeHTML(clientConfig.name)}</strong>`;
-    if (document.getElementById('modalShopName')) {
-        document.getElementById('modalShopName').textContent = clientConfig.shortName || clientConfig.name;
-    }
-    clientNameMap = (typeof CLIENT_NAME_MAPS !== 'undefined' ? CLIENT_NAME_MAPS[clientConfig.id] : {}) || {};
-    loadClientData();
+    
+    document.getElementById('headerBadge').textContent = clientConfig.short_name || 'Cliente';
+    document.getElementById('footerClientName').textContent = clientConfig.name;
+    document.getElementById('modalShopName').textContent = clientConfig.short_name;
+    
+    await loadClientData();
+    await syncLocalStoragePayments();
 }
 
-// ============================================================
-// CARREGAMENTO DOS DADOS (IndexedDB / Arquivo Estático)
-// ============================================================
 async function loadClientData() {
     try {
-        // 1. Tenta carregar do IndexedDB
-        const dbRows = await dbGetClientData(clientConfig.id);
-        if (dbRows && dbRows.length) {
-            rawData = dbRows;
-            initData();
-            return;
-        }
-
-        // 2. Se for o Divino Pão ou tiver dataFile estático
-        if (clientConfig.dataFile) {
-            const script = document.createElement('script');
-            script.src = clientConfig.dataFile;
-            script.onload = () => {
-                if (typeof EMBEDDED_DATA !== 'undefined' && EMBEDDED_DATA.length) {
-                    rawData = EMBEDDED_DATA;
-                }
-                initData();
-            };
-            script.onerror = () => {
-                if (typeof EMBEDDED_DATA !== 'undefined' && EMBEDDED_DATA.length) {
-                    rawData = EMBEDDED_DATA;
-                    initData();
-                } else {
-                    initData();
-                }
-            };
-            document.head.appendChild(script);
-            return;
-        }
-
-        // 3. Fallback se não houver dados
-        initData();
+        const { data: records, error: recError } = await sb.from('records')
+            .select('*')
+            .eq('client_id', clientConfig.id)
+            .order('data_emissao', { ascending: true })
+            .limit(50000);
+        if (recError) throw recError;
+        rawRecords = records || [];
+        
+        const { data: payments, error: payError } = await sb.from('payments')
+            .select('*')
+            .eq('client_id', clientConfig.id)
+            .limit(50000);
+        if (payError) throw payError;
+        paymentsData = payments || [];
+        
+        paymentsMap = {};
+        paymentsData.forEach(p => {
+            paymentsMap[p.record_id] = (paymentsMap[p.record_id] || 0) + parseFloat(p.amount);
+        });
+        
+        processedData = rawRecords.map(row => ({
+            id: row.id,
+            indice: row.indice,
+            clienteOriginal: row.banco || '',
+            cliente: row.banco_normalized || normalizeClientName(row.banco),
+            produto: row.fatura || '',
+            codigo: row.historico || '',
+            valor: parseFloat(row.valor) || 0,
+            saldo: parseFloat(row.saldo_atual) || 0,
+            dataEmissao: row.data_emissao || '',
+            usuario: row.usuario || '',
+            parcela: row.parcela || '',
+        }));
+        
+        buildClientGroups(processedData);
+        populateFilters();
+        applyFilters();
+        document.getElementById('footerSyncCount').textContent = processedData.length;
     } catch (e) {
-        console.error('Erro ao carregar dados:', e);
-        initData();
+        showToast('Erro ao carregar dados');
+        console.error(e);
     }
+}
+
+async function syncLocalStoragePayments() {
+    const key = 'qrzfood_payments_' + clientConfig.id;
+    const localData = localStorage.getItem(key);
+    if (!localData) return;
+    
+    try {
+        const payments = JSON.parse(localData);
+        let synced = 0;
+        for (const [indice, payment] of Object.entries(payments)) {
+            if (!payment.paid || payment.paid <= 0) continue;
+            
+            const record = processedData.find(r => String(r.indice) === String(indice));
+            if (!record) continue;
+            
+            if (getItemPaid(record) > 0) continue;
+            
+            await registerPayment(record.id, payment.paid, 'Migrado do localStorage');
+            synced++;
+        }
+        
+        if (synced > 0) {
+            localStorage.setItem(key + '_migrated', localData);
+            localStorage.removeItem(key);
+            showToast(`${synced} baixa(s) migrada(s) do navegador!`);
+            await loadClientData();
+        }
+    } catch (e) {
+        console.error('Erro na migracao localStorage:', e);
+    }
+}
+
+function getItemPaid(item) {
+    return paymentsMap[item.id] || 0;
+}
+
+function getItemRemaining(item) {
+    return Math.max(0, item.saldo - getItemPaid(item));
+}
+
+function getItemStatus(item) {
+    const paid = getItemPaid(item);
+    if (paid >= item.saldo) return 'paid';
+    if (paid > 0) return 'partial';
+    return 'pending';
+}
+
+async function registerPayment(recordId, amount, note) {
+    const { error } = await sb.from('payments').insert({
+        record_id: recordId,
+        client_id: clientConfig.id,
+        amount: amount,
+        note: note || '',
+        created_by: clientConfig.email || clientConfig.short_name,
+    });
+    if (error) { showToast('Erro ao registrar baixa: ' + error.message); return false; }
+    paymentsMap[recordId] = (paymentsMap[recordId] || 0) + amount;
+    return true;
+}
+
+async function clearPaymentsForDebtor(debtorName) {
+    const recordIds = processedData.filter(d => d.cliente === debtorName).map(d => d.id);
+    if (recordIds.length === 0) return;
+    
+    const { error } = await sb.from('payments').delete().eq('client_id', clientConfig.id).in('record_id', recordIds);
+    if (error) { showToast('Erro ao desfazer baixas: ' + error.message); return; }
+    
+    recordIds.forEach(id => { paymentsMap[id] = 0; });
 }
 
 function normalizeClientName(raw) {
     if (!raw || !raw.trim()) return 'SEM NOME';
-    return clientNameMap[raw.trim().toLowerCase()] || raw.trim().toUpperCase();
-}
-
-function initData() {
-    processedData = (rawData || []).map((row, idx) => {
-        // Use indice (campo estável do banco Access) como ID primário.
-        // Se indice não existir, gera chave composta de banco+fatura+dataemi+valor para estabilidade.
-        const indice = (row.indice !== undefined && row.indice !== null && row.indice !== '') ? String(row.indice) : '';
-        const stableId = indice || `${(row.banco||'').trim()}_${(row.fatura||'').trim()}_${(row.dataemi||'')}_${(row.valor||'')}`.toLowerCase().replace(/\s+/g, '_');
-        return {
-            id: stableId,
-            _idx: idx,
-            clienteOriginal: (row.banco || '').trim(),
-            cliente: normalizeClientName(row.banco),
-            produto: (row.fatura || row.portador || '').trim(),
-            codigo: (row.historico || '').trim(),
-            valor: parseDecimal(row.valor),
-            saldo: parseDecimal(row.saldoatual),
-            dataEmissao: row.dataemi || '',
-            usuario: (row.usuarioatual || '').trim(),
-            parcela: (row.parcela || '').trim(),
-            indice: indice,
-        };
-    });
-
-    buildClientGroups(processedData);
-    populateFilters();
-    applyFilters();
-    document.getElementById('footerSyncCount').textContent = processedData.length;
+    const trimmed = raw.trim();
+    const lower = trimmed.toLowerCase();
+    return clientNameMap[lower] || clientNameMap[trimmed] || trimmed.toUpperCase();
 }
 
 function buildClientGroups(data) {
     clientGroups = {};
     data.forEach(item => {
-        if (!clientGroups[item.cliente]) clientGroups[item.cliente] = [];
+        if (!clientGroups[item.cliente]) {
+            clientGroups[item.cliente] = [];
+        }
         clientGroups[item.cliente].push(item);
     });
 }
 
-// ============================================================
-// PAGAMENTOS & BAIXAS (localStorage por cliente)
-// ============================================================
-function paymentsKey() {
-    return 'qrzfood_payments_' + (clientConfig ? clientConfig.id : 'unknown');
-}
-function getPayments() {
-    try { return JSON.parse(localStorage.getItem(paymentsKey())) || {}; } catch { return {}; }
-}
-function savePayments(p) {
-    localStorage.setItem(paymentsKey(), JSON.stringify(p));
-}
-function getItemPayment(id) {
-    return getPayments()[id] || { paid: 0 };
-}
-function setItemPayment(id, amount, note) {
-    const p = getPayments();
-    if (!p[id]) p[id] = { paid: 0, notes: [] };
-    p[id].paid = Math.max(0, amount);
-    if (note) {
-        if (!p[id].notes) p[id].notes = [];
-        p[id].notes.push({ text: note, date: new Date().toISOString() });
-    }
-    savePayments(p);
-}
-function clearPaymentsForClient(clientName) {
-    const p = getPayments();
-    processedData.forEach(item => {
-        if (item.cliente === clientName) delete p[item.id];
-    });
-    savePayments(p);
-}
-function getItemRemaining(item) {
-    return Math.max(0, item.saldo - (getItemPayment(item.id).paid || 0));
-}
-function getItemStatus(item) {
-    const rem = getItemRemaining(item);
-    if (rem <= 0) return 'paid';
-    if ((getItemPayment(item.id).paid || 0) > 0) return 'partial';
-    return 'pending';
-}
-
-// ============================================================
-// FILTROS INSTANTÂNEOS
-// ============================================================
 function populateFilters() {
-    const addOpts = (sel, vals) => {
-        sel.innerHTML = '<option value="">Todos</option>';
-        vals.forEach(v => sel.appendChild(Object.assign(document.createElement('option'), { value: v, textContent: v })));
+    const filterCliente = document.getElementById('filterCliente');
+    const filterProduto = document.getElementById('filterProduto');
+    const filterUsuario = document.getElementById('filterUsuario');
+    
+    const selC = filterCliente.value;
+    const selP = filterProduto.value;
+    const selU = filterUsuario.value;
+    
+    const clientes = [...new Set(processedData.map(d => d.cliente))].sort();
+    const produtos = [...new Set(processedData.map(d => d.produto).filter(Boolean))].sort();
+    const usuarios = [...new Set(processedData.map(d => d.usuario).filter(Boolean))].sort();
+    
+    const buildOptions = (items, selected) => {
+        let html = '<option value="">Todos</option>';
+        items.forEach(i => {
+            html += `<option value="${escapeHTML(i)}" ${i === selected ? 'selected' : ''}>${escapeHTML(i)}</option>`;
+        });
+        return html;
     };
-    addOpts(document.getElementById('filterCliente'), [...new Set(processedData.map(d => d.cliente))].sort((a, b) => a.localeCompare(b, 'pt-BR')));
-    addOpts(document.getElementById('filterProduto'), [...new Set(processedData.map(d => d.produto).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')));
-    addOpts(document.getElementById('filterUsuario'), [...new Set(processedData.map(d => d.usuario).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')));
+    
+    filterCliente.innerHTML = buildOptions(clientes, selC);
+    filterProduto.innerHTML = buildOptions(produtos, selP);
+    filterUsuario.innerHTML = buildOptions(usuarios, selU);
 }
 
 function getFilteredData() {
-    const gv = id => document.getElementById(id).value;
-    const cliente = gv('filterCliente'), produto = gv('filterProduto'), usuario = gv('filterUsuario');
-    const dataDe = gv('filterDataDe'), dataAte = gv('filterDataAte'), valorMin = gv('filterValorMin'), valorMax = gv('filterValorMax');
-    const search = document.getElementById('searchGlobal').value.toLowerCase().trim();
+    const fCli = document.getElementById('filterCliente').value.toLowerCase();
+    const fProd = document.getElementById('filterProduto').value.toLowerCase();
+    const fUser = document.getElementById('filterUsuario').value.toLowerCase();
+    const fDe = document.getElementById('filterDataDe').value;
+    const fAte = document.getElementById('filterDataAte').value;
+    const fMin = parseFloat(document.getElementById('filterValorMin').value) || null;
+    const fMax = parseFloat(document.getElementById('filterValorMax').value) || null;
+    const q = document.getElementById('searchGlobal').value.toLowerCase();
+    
+    const dateDe = fDe ? new Date(fDe + 'T00:00:00') : null;
+    const dateAte = fAte ? new Date(fAte + 'T23:59:59') : null;
 
-    let result = processedData.filter(item => {
-        if (cliente && item.cliente !== cliente) return false;
-        if (produto && item.produto !== produto) return false;
-        if (usuario && item.usuario.toLowerCase() !== usuario.toLowerCase()) return false;
-        if (dataDe) { const d = toDateObj(item.dataEmissao); if (!d || d < new Date(dataDe + 'T00:00:00')) return false; }
-        if (dataAte) { const d = toDateObj(item.dataEmissao); if (!d || d > new Date(dataAte + 'T23:59:59')) return false; }
-        if (valorMin !== '' && item.saldo < parseFloat(valorMin)) return false;
-        if (valorMax !== '' && item.saldo > parseFloat(valorMax)) return false;
-        if (activePreset === 'pending' && getItemStatus(item) !== 'pending') return false;
-        if (activePreset === 'partial' && getItemStatus(item) !== 'partial') return false;
-        if (activePreset === 'paid' && getItemStatus(item) !== 'paid') return false;
-        if (activePreset === 'high-value' && getItemRemaining(item) < 50) return false;
-        if (search) {
-            const h = [item.cliente, item.clienteOriginal, item.produto, item.codigo, item.usuario, formatBRL(item.saldo), formatDate(item.dataEmissao)].join(' ').toLowerCase();
-            if (!h.includes(search)) return false;
+    return processedData.filter(item => {
+        if (q) {
+            const searchStr = `${item.cliente} ${item.produto} ${item.codigo} ${item.usuario}`.toLowerCase();
+            if (!searchStr.includes(q)) return false;
         }
+        
+        if (fCli && item.cliente.toLowerCase() !== fCli) return false;
+        if (fProd && item.produto.toLowerCase() !== fProd) return false;
+        if (fUser && item.usuario.toLowerCase() !== fUser) return false;
+        
+        if (fMin !== null && item.saldo < fMin) return false;
+        if (fMax !== null && item.saldo > fMax) return false;
+        
+        if (dateDe || dateAte) {
+            const itemDate = toDateObj(item.dataEmissao);
+            if (itemDate) {
+                if (dateDe && itemDate < dateDe) return false;
+                if (dateAte && itemDate > dateAte) return false;
+            }
+        }
+        
+        const status = getItemStatus(item);
+        if (activePreset === 'pending' && status !== 'pending') return false;
+        if (activePreset === 'partial' && status !== 'partial') return false;
+        if (activePreset === 'paid' && status !== 'paid') return false;
+        if (activePreset === 'high-value' && item.saldo <= 50) return false;
+        
         return true;
     });
-
-    if (activePreset === 'top-clients') {
-        const t = {};
-        result.forEach(d => { t[d.cliente] = (t[d.cliente] || 0) + getItemRemaining(d); });
-        const top = new Set(Object.entries(t).sort((a, b) => b[1] - a[1]).slice(0, 10).map(e => e[0]));
-        result = result.filter(d => top.has(d.cliente));
-    }
-    return result;
 }
 
 function applyFilters() {
-    const f = getFilteredData();
-    buildClientGroups(f);
-    updateHeaderStats(f);
-    renderCards();
-    renderTable(f);
-    if (!document.getElementById('chartView').classList.contains('hidden')) renderCharts(f);
-    document.getElementById('searchCountBadge').textContent = f.length;
+    let data = getFilteredData();
+    
+    if (activePreset === 'top-clients') {
+        const cTotals = {};
+        data.forEach(d => {
+            const rem = getItemRemaining(d);
+            if (rem > 0) {
+                cTotals[d.cliente] = (cTotals[d.cliente] || 0) + rem;
+            }
+        });
+        const top10 = Object.entries(cTotals).sort((a,b) => b[1] - a[1]).slice(0, 10).map(x => x[0]);
+        data = data.filter(d => top10.includes(d.cliente));
+    }
+    
+    document.getElementById('searchCountBadge').textContent = data.length;
+    
+    updateHeaderStats(data);
+    
+    const activeView = document.querySelector('.view-tab.active').id;
+    if (activeView === 'viewCards') renderCards(data);
+    else if (activeView === 'viewTable') renderTable(data);
+    else renderCharts(data);
 }
 
 function updateHeaderStats(data) {
-    document.getElementById('totalGeral').textContent = formatBRL(data.reduce((s, d) => s + getItemRemaining(d), 0));
-    document.getElementById('totalRecebido').textContent = formatBRL(data.reduce((s, d) => s + Math.min(getItemPayment(d.id).paid || 0, d.saldo), 0));
-    document.getElementById('totalClientes').textContent = new Set(data.map(d => d.cliente)).size;
+    let totalReceber = 0;
+    let totalRecebido = 0;
+    const clientesSet = new Set();
+    
+    data.forEach(item => {
+        const paid = getItemPaid(item);
+        const rem = getItemRemaining(item);
+        totalReceber += rem;
+        totalRecebido += paid;
+        if (rem > 0) clientesSet.add(item.cliente);
+    });
+    
+    document.getElementById('totalGeral').textContent = formatBRL(totalReceber);
+    document.getElementById('totalRecebido').textContent = formatBRL(totalRecebido);
+    document.getElementById('totalClientes').textContent = clientesSet.size;
     document.getElementById('totalRegistros').textContent = data.length;
 }
 
-// ============================================================
-// CARDS VIEW
-// ============================================================
-function renderCards() {
-    const grid = document.getElementById('cardsGrid'), empty = document.getElementById('cardsEmptyState');
-    grid.innerHTML = '';
-    const names = Object.keys(clientGroups);
-    if (!names.length) { empty.classList.remove('hidden'); return; }
-    empty.classList.add('hidden');
-
-    names.sort((a, b) => {
-        const ta = clientGroups[a].reduce((s, d) => s + getItemRemaining(d), 0);
-        const tb = clientGroups[b].reduce((s, d) => s + getItemRemaining(d), 0);
-        switch (currentCardSort) {
-            case 'debt-asc': return ta - tb;
-            case 'name-asc': return a.localeCompare(b, 'pt-BR');
-            case 'items-desc': return clientGroups[b].length - clientGroups[a].length;
-            default: return tb - ta;
+function renderCards(data) {
+    const grid = document.getElementById('cardsGrid');
+    const emptyState = document.getElementById('cardsEmptyState');
+    
+    if (data.length === 0) {
+        grid.innerHTML = '';
+        emptyState.classList.remove('hidden');
+        return;
+    }
+    emptyState.classList.add('hidden');
+    
+    const cStats = {};
+    data.forEach(item => {
+        if (!cStats[item.cliente]) cStats[item.cliente] = { name: item.cliente, total: 0, items: 0, oldest: null };
+        const rem = getItemRemaining(item);
+        if (rem > 0) {
+            cStats[item.cliente].total += rem;
+            cStats[item.cliente].items++;
+            const dt = toDateObj(item.dataEmissao);
+            if (dt && (!cStats[item.cliente].oldest || dt < cStats[item.cliente].oldest)) {
+                cStats[item.cliente].oldest = dt;
+            }
         }
-    }).forEach(name => {
-        const items = clientGroups[name];
-        const totalOrig = items.reduce((s, d) => s + d.saldo, 0);
-        const totalRem = items.reduce((s, d) => s + getItemRemaining(d), 0);
-        const totalPaid = items.reduce((s, d) => s + Math.min(getItemPayment(d.id).paid || 0, d.saldo), 0);
-        const products = [...new Set(items.map(d => d.produto).filter(Boolean))];
-        const dates = items.map(d => toDateObj(d.dataEmissao)).filter(Boolean);
-        const minD = dates.length ? new Date(Math.min(...dates)) : null, maxD = dates.length ? new Date(Math.max(...dates)) : null;
-        let sc = 'tag-pending', st = 'Pendente';
-        if (totalRem <= 0) { sc = 'tag-paid'; st = 'Pago'; }
-        else if (totalPaid > 0) { sc = 'tag-partial'; st = 'Parcial'; }
-
-        const c = document.createElement('div');
-        c.className = 'client-card' + (totalRem <= 0 ? ' card-paid' : '');
-        c.innerHTML = `
-            <div class="card-top">
-                <div><h3 class="card-client-title">${escapeHTML(name)}</h3><span class="card-status-tag ${sc}">${st}</span></div>
-                <div class="card-total-badge">${formatBRL(totalRem)}</div>
-            </div>
-            <div class="card-metrics-row">
-                <div class="card-metric"><span class="card-metric-label">Itens</span><span class="card-metric-value">${items.length}</span></div>
-                <div class="card-metric"><span class="card-metric-label">Original</span><span class="card-metric-value">${formatBRL(totalOrig)}</span></div>
-                <div class="card-metric"><span class="card-metric-label">Pago</span><span class="card-metric-value text-green">${formatBRL(totalPaid)}</span></div>
-            </div>
-            <div class="card-products-preview">
-                <div class="card-products-preview-title">Itens</div>
-                <div class="product-badges">${products.slice(0, 4).map(p => `<span class="product-pill">${escapeHTML(p)}</span>`).join('')}${products.length > 4 ? `<span class="product-pill pill-more">+${products.length - 4}</span>` : ''}</div>
-            </div>
-            <div class="card-bottom">
-                <span>${minD ? formatDate(minD.toISOString()) : '—'} → ${maxD ? formatDate(maxD.toISOString()) : '—'}</span>
-                <span class="card-action-hint">Ver Extrato →</span>
-            </div>`;
-        c.addEventListener('click', () => openModal(name));
-        grid.appendChild(c);
     });
+    
+    let cards = Object.values(cStats).filter(c => c.total > 0);
+    
+    cards.sort((a, b) => {
+        if (currentCardSort === 'debt-desc') return b.total - a.total;
+        if (currentCardSort === 'debt-asc') return a.total - b.total;
+        if (currentCardSort === 'name-asc') return a.name.localeCompare(b.name);
+        if (currentCardSort === 'items-desc') return b.items - a.items;
+        return 0;
+    });
+    
+    grid.innerHTML = cards.map(c => {
+        const oldestStr = c.oldest ? c.oldest.toLocaleDateString('pt-BR') : '-';
+        return `
+            <div class="client-card" onclick="openModal('${escapeHTML(c.name)}')">
+                <div class="card-header-flex">
+                    <h3 class="card-title">${escapeHTML(c.name)}</h3>
+                </div>
+                <div class="card-kpis">
+                    <div class="kpi-box">
+                        <span class="kpi-label">Debito Total</span>
+                        <span class="kpi-val text-accent">${formatBRL(c.total)}</span>
+                    </div>
+                    <div class="kpi-box">
+                        <span class="kpi-label">Lancamentos</span>
+                        <span class="kpi-val">${c.items}</span>
+                    </div>
+                </div>
+                <div class="card-footer-flex">
+                    <span class="oldest-date">Desde: ${oldestStr}</span>
+                    <button class="btn btn-outline btn-sm">Ver Extrato</button>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
-// ============================================================
-// TABLE VIEW
-// ============================================================
 function renderTable(data) {
     const tbody = document.getElementById('tableBody');
-    tbody.innerHTML = '';
-    [...data].sort((a, b) => {
-        let va, vb;
-        switch (currentSort.key) {
-            case 'cliente': va = a.cliente; vb = b.cliente; break;
-            case 'produto': va = a.produto; vb = b.produto; break;
-            case 'valor': va = a.valor; vb = b.valor; break;
-            case 'saldo': va = getItemRemaining(a); vb = getItemRemaining(b); break;
-            case 'data': va = a.dataEmissao; vb = b.dataEmissao; break;
-            default: return 0;
-        }
-        if (typeof va === 'string') { const c = va.localeCompare(vb, 'pt-BR'); return currentSort.dir === 'asc' ? c : -c; }
-        return currentSort.dir === 'asc' ? va - vb : vb - va;
-    }).forEach(item => {
-        const rem = getItemRemaining(item), paid = Math.min(getItemPayment(item.id).paid || 0, item.saldo), status = getItemStatus(item);
-        const bc = status === 'paid' ? 'badge-paid' : status === 'partial' ? 'badge-partial' : 'badge-pending';
-        const bt = status === 'paid' ? '✓ Pago' : status === 'partial' ? '◐ Parcial' : '○ Pendente';
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><strong>${escapeHTML(item.cliente)}</strong></td>
-            <td>${escapeHTML(item.produto)}</td>
-            <td class="currency-cell">${formatBRL(item.valor)}</td>
-            <td class="currency-cell text-accent">${formatBRL(rem)}</td>
-            <td class="text-green">${formatBRL(paid)}</td>
-            <td><span class="status-badge ${bc}">${bt}</span></td>
-            <td>${formatDateTime(item.dataEmissao)}</td>
-            <td>${escapeHTML(item.usuario)}</td>
-            <td>${escapeHTML(item.parcela)}</td>`;
-        tbody.appendChild(tr);
+    if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:2rem;">Nenhum registro encontrado.</td></tr>';
+        document.getElementById('tableCount').textContent = '0 registros';
+        document.getElementById('tableTotal').textContent = 'R$ 0,00';
+        return;
+    }
+    
+    let sorted = [...data].sort((a, b) => {
+        let valA, valB;
+        if (currentSort.key === 'cliente') { valA = a.cliente; valB = b.cliente; }
+        else if (currentSort.key === 'produto') { valA = a.produto; valB = b.produto; }
+        else if (currentSort.key === 'valor') { valA = a.valor; valB = b.valor; }
+        else if (currentSort.key === 'saldo') { valA = a.saldo; valB = b.saldo; }
+        else if (currentSort.key === 'data') { valA = toDateObj(a.dataEmissao) || 0; valB = toDateObj(b.dataEmissao) || 0; }
+        
+        if (typeof valA === 'string') return currentSort.dir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        return currentSort.dir === 'asc' ? valA - valB : valB - valA;
     });
-    document.getElementById('tableCount').textContent = data.length + ' registros';
-    document.getElementById('tableTotal').textContent = formatBRL(data.reduce((s, d) => s + getItemRemaining(d), 0));
+    
+    let totalTable = 0;
+    tbody.innerHTML = sorted.map(item => {
+        const paid = getItemPaid(item);
+        const rem = getItemRemaining(item);
+        const status = getItemStatus(item);
+        totalTable += rem;
+        
+        let statusHtml = '';
+        if (status === 'paid') statusHtml = '<span class="status-badge paid">Pago</span>';
+        else if (status === 'partial') statusHtml = '<span class="status-badge partial">Parcial</span>';
+        else statusHtml = '<span class="status-badge pending">Pendente</span>';
+        
+        return `
+            <tr>
+                <td><strong>${escapeHTML(item.cliente)}</strong></td>
+                <td>${escapeHTML(item.produto)}<br><small class="text-muted">${escapeHTML(item.codigo)}</small></td>
+                <td>${formatBRL(item.saldo)}</td>
+                <td><span class="text-accent"><strong>${formatBRL(rem)}</strong></span></td>
+                <td>${formatBRL(paid)}</td>
+                <td>${statusHtml}</td>
+                <td>${formatDate(item.dataEmissao)}</td>
+                <td>${escapeHTML(item.usuario)}</td>
+                <td>${escapeHTML(item.parcela)}</td>
+            </tr>
+        `;
+    }).join('');
+    
+    document.getElementById('tableCount').textContent = `${sorted.length} registros`;
+    document.getElementById('tableTotal').textContent = formatBRL(totalTable);
 }
 
-// ============================================================
-// CHARTS (Chart.js)
-// ============================================================
 function renderCharts(data) {
     if (typeof Chart === 'undefined') return;
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    const gc = isDark ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.06)';
-    const tc = isDark ? '#9ca3af' : '#7e8695';
-    const accentColor = clientConfig && clientConfig.color ? clientConfig.color : '#e8590c';
-
-    // Daily Evolution
-    const dm = {};
+    
+    Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
+    Chart.defaults.color = document.documentElement.getAttribute('data-theme') === 'dark' ? '#94a3b8' : '#64748b';
+    
+    const gridColor = document.documentElement.getAttribute('data-theme') === 'dark' ? '#334155' : '#e2e8f0';
+    const accentColor = clientConfig.color || '#e8590c';
+    
+    const dailyMap = {};
     data.forEach(d => {
-        const dt = toDateObj(d.dataEmissao);
-        if (!dt) return;
-        const k = dt.toISOString().split('T')[0];
-        dm[k] = (dm[k] || 0) + d.saldo;
+        const rem = getItemRemaining(d);
+        if (rem > 0 && d.dataEmissao) {
+            const dateStr = d.dataEmissao.split('T')[0];
+            dailyMap[dateStr] = (dailyMap[dateStr] || 0) + rem;
+        }
     });
-    const dl = Object.keys(dm).sort(), dv = dl.map(k => dm[k]);
-    let cum = 0; const cv = dv.map(v => { cum += v; return +cum.toFixed(2); });
-
+    const dailyKeys = Object.keys(dailyMap).sort();
+    const dailyLabels = dailyKeys.map(k => {
+        const [y,m,d] = k.split('-');
+        return `${d}/${m}`;
+    });
+    const dailyValues = dailyKeys.map(k => dailyMap[k]);
+    
     if (chartInstances.daily) chartInstances.daily.destroy();
-    const c1 = document.getElementById('chartDaily');
-    if (c1) {
-        chartInstances.daily = new Chart(c1, {
-            type: 'line',
-            data: {
-                labels: dl.map(d => d.split('-').slice(1).reverse().join('/')),
-                datasets: [
-                    { label: 'Fiado/Dia', data: dv, borderColor: accentColor, backgroundColor: `${accentColor}25`, fill: true, tension: .35, pointRadius: 2 },
-                    { label: 'Acumulado', data: cv, borderColor: '#2b8a3e', fill: false, tension: .35, pointRadius: 1, borderDash: [4, 3] }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: { x: { ticks: { color: tc, maxTicksLimit: 15 }, grid: { color: gc } }, y: { ticks: { color: tc }, grid: { color: gc } } },
-                plugins: { legend: { labels: { color: tc } } }
-            }
-        });
-    }
-
-    // Top Clients
-    const ct = {};
-    data.forEach(d => { ct[d.cliente] = (ct[d.cliente] || 0) + getItemRemaining(d); });
-    const t10 = Object.entries(ct).sort((a, b) => b[1] - a[1]).slice(0, 10);
-
+    chartInstances.daily = new Chart(document.getElementById('chartDaily'), {
+        type: 'line',
+        data: { labels: dailyLabels, datasets: [{ label: 'Saldo', data: dailyValues, borderColor: accentColor, backgroundColor: accentColor+'33', fill: true, tension: 0.4 }] },
+        options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: { color: gridColor }, beginAtZero: true } } }
+    });
+    
+    const cliMap = {};
+    data.forEach(d => {
+        const rem = getItemRemaining(d);
+        if (rem > 0) cliMap[d.cliente] = (cliMap[d.cliente] || 0) + rem;
+    });
+    const top10 = Object.entries(cliMap).sort((a,b) => b[1] - a[1]).slice(0, 10);
+    
     if (chartInstances.top) chartInstances.top.destroy();
-    const c2 = document.getElementById('chartTopClients');
-    if (c2) {
-        chartInstances.top = new Chart(c2, {
-            type: 'bar',
-            data: {
-                labels: t10.map(e => e[0]),
-                datasets: [{ data: t10.map(e => e[1]), backgroundColor: `${accentColor}B3`, borderRadius: 6 }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                indexAxis: 'y',
-                scales: { x: { ticks: { color: tc }, grid: { color: gc } }, y: { ticks: { color: tc, font: { size: 11 } }, grid: { display: false } } },
-                plugins: { legend: { display: false } }
-            }
-        });
-    }
-
-    // Products Distribution
-    const pt = {};
-    data.forEach(d => { if (d.produto) pt[d.produto] = (pt[d.produto] || 0) + d.saldo; });
-    const tp = Object.entries(pt).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    const pc = [accentColor, '#d9480f', '#f76707', '#ff922b', '#ffa94d', '#ffd8a8', '#2b8a3e', '#d97706'];
-
+    chartInstances.top = new Chart(document.getElementById('chartTopClients'), {
+        type: 'bar',
+        data: { labels: top10.map(x=>x[0]), datasets: [{ label: 'Debito', data: top10.map(x=>x[1]), backgroundColor: accentColor, borderRadius: 4 }] },
+        options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', scales: { x: { grid: { color: gridColor }, beginAtZero: true }, y: { grid: { display: false } } } }
+    });
+    
+    const prodMap = {};
+    data.forEach(d => {
+        const rem = getItemRemaining(d);
+        if (rem > 0 && d.produto) prodMap[d.produto] = (prodMap[d.produto] || 0) + rem;
+    });
+    const topProd = Object.entries(prodMap).sort((a,b) => b[1] - a[1]).slice(0, 5);
+    
     if (chartInstances.prod) chartInstances.prod.destroy();
-    const c3 = document.getElementById('chartProducts');
-    if (c3) {
-        chartInstances.prod = new Chart(c3, {
-            type: 'doughnut',
-            data: {
-                labels: tp.map(e => e[0]),
-                datasets: [{ data: tp.map(e => e[1]), backgroundColor: pc, borderWidth: 0 }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'right', labels: { color: tc, font: { size: 11 }, padding: 10 } } }
-            }
-        });
-    }
+    chartInstances.prod = new Chart(document.getElementById('chartProducts'), {
+        type: 'doughnut',
+        data: { labels: topProd.map(x=>x[0]), datasets: [{ data: topProd.map(x=>x[1]), backgroundColor: [accentColor, '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'] }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+    });
 }
 
-// ============================================================
-// MODAL EXTRATO DO CLIENTE
-// ============================================================
-function openModal(name) {
-    currentModalClient = name;
+window.openModal = function(clientName) {
+    currentModalClient = clientName;
     selectedItems.clear();
-    const items = clientGroups[name] || [];
-    const tO = items.reduce((s, d) => s + d.saldo, 0);
-    const tR = items.reduce((s, d) => s + getItemRemaining(d), 0);
-    const tP = items.reduce((s, d) => s + Math.min(getItemPayment(d.id).paid || 0, d.saldo), 0);
-    const dates = items.map(d => toDateObj(d.dataEmissao)).filter(Boolean);
-    const minD = dates.length ? new Date(Math.min(...dates)) : null, maxD = dates.length ? new Date(Math.max(...dates)) : null;
-
-    document.getElementById('modalClientName').textContent = name;
-    document.getElementById('modalClientSummary').textContent = `${items.length} lançamentos • ${clientConfig.shortName || clientConfig.name}`;
-    document.getElementById('modalStats').innerHTML = `
-        <div class="modal-kpi-card"><span class="modal-kpi-label">Saldo Restante</span><span class="modal-kpi-value accent">${formatBRL(tR)}</span></div>
-        <div class="modal-kpi-card"><span class="modal-kpi-label">Total Original</span><span class="modal-kpi-value">${formatBRL(tO)}</span></div>
-        <div class="modal-kpi-card"><span class="modal-kpi-label">Já Recebido</span><span class="modal-kpi-value green">${formatBRL(tP)}</span></div>
-        <div class="modal-kpi-card"><span class="modal-kpi-label">Itens</span><span class="modal-kpi-value">${items.length}</span></div>
-        <div class="modal-kpi-card"><span class="modal-kpi-label">Primeiro</span><span class="modal-kpi-value">${minD ? formatDate(minD.toISOString()) : '—'}</span></div>
-        <div class="modal-kpi-card"><span class="modal-kpi-label">Último</span><span class="modal-kpi-value">${maxD ? formatDate(maxD.toISOString()) : '—'}</span></div>`;
-
-    renderModalTable(items);
+    baixaMode = 'all';
+    
+    document.getElementById('modalClientName').textContent = clientName;
+    document.getElementById('selectAllItems').checked = false;
+    
+    refreshModal();
     document.getElementById('modalOverlay').classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
+};
+
+function refreshModal() {
+    const items = clientGroups[currentModalClient] || [];
+    
+    let totalDebt = 0;
+    let pendingCount = 0;
+    let paidTotal = 0;
+    
+    items.forEach(i => {
+        const rem = getItemRemaining(i);
+        const paid = getItemPaid(i);
+        paidTotal += paid;
+        if (rem > 0) {
+            totalDebt += rem;
+            pendingCount++;
+        }
+    });
+    
+    document.getElementById('modalClientSummary').textContent = `${pendingCount} lancamento(s) pendente(s) | Total de historico: ${items.length}`;
+    
+    document.getElementById('modalStats').innerHTML = `
+        <div class="modal-kpi-card"><div class="modal-kpi-label">Debito Atual</div><div class="modal-kpi-val text-accent">${formatBRL(totalDebt)}</div></div>
+        <div class="modal-kpi-card"><div class="modal-kpi-label">Ja Pago (Historico)</div><div class="modal-kpi-val text-green">${formatBRL(paidTotal)}</div></div>
+        <div class="modal-kpi-card"><div class="modal-kpi-label">Lancamentos Pendentes</div><div class="modal-kpi-val">${pendingCount}</div></div>
+    `;
+    
+    renderModalTable(items);
+    updateBaixaButtons();
 }
 
 function renderModalTable(items) {
     const tbody = document.getElementById('modalTableBody');
-    tbody.innerHTML = '';
-    const sorted = [...items].sort((a, b) => {
+    
+    const sorted = [...items].sort((a,b) => {
         const da = toDateObj(a.dataEmissao), db = toDateObj(b.dataEmissao);
-        if (!da && !db) return 0; if (!da) return 1; if (!db) return -1; return da - db;
+        if(!da && !db) return 0; if(!da) return 1; if(!db) return -1;
+        return db - da;
     });
-
-    sorted.forEach(item => {
-        const rem = getItemRemaining(item), paid = Math.min(getItemPayment(item.id).paid || 0, item.saldo), status = getItemStatus(item);
-        const bc = status === 'paid' ? 'badge-paid' : status === 'partial' ? 'badge-partial' : 'badge-pending';
-        const bt = status === 'paid' ? '✓ Pago' : status === 'partial' ? '◐ Parcial' : '○ Pendente';
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><input type="checkbox" class="item-check" data-id="${item.id}" ${selectedItems.has(item.id) ? 'checked' : ''}></td>
-            <td><strong>${escapeHTML(item.produto)}</strong></td>
-            <td>${formatBRL(item.saldo)}</td>
-            <td class="text-green">${formatBRL(paid)}</td>
-            <td class="currency-cell text-accent">${formatBRL(rem)}</td>
-            <td><span class="status-badge ${bc}">${bt}</span></td>
-            <td>${formatDateTime(item.dataEmissao)}</td>
-            <td>${escapeHTML(item.usuario)}</td>
-            <td>${status !== 'paid' ? `<button class="btn btn-success btn-sm btn-item-pay" data-id="${item.id}" data-saldo="${item.saldo}">Baixa</button>` : '—'}</td>`;
-        tbody.appendChild(tr);
-    });
-
-    tbody.querySelectorAll('.item-check').forEach(cb => {
-        cb.addEventListener('change', e => {
-            const id = e.target.dataset.id;
-            if (e.target.checked) selectedItems.add(id); else selectedItems.delete(id);
+    
+    tbody.innerHTML = sorted.map(item => {
+        const rem = getItemRemaining(item);
+        const paid = getItemPaid(item);
+        const status = getItemStatus(item);
+        
+        let statusHtml = '';
+        if (status === 'paid') statusHtml = '<span class="status-badge paid">Pago</span>';
+        else if (status === 'partial') statusHtml = '<span class="status-badge partial">Parcial</span>';
+        else statusHtml = '<span class="status-badge pending">Pendente</span>';
+        
+        const isChecked = selectedItems.has(item.id) ? 'checked' : '';
+        const disableCheck = status === 'paid' ? 'disabled' : '';
+        const disableBtn = status === 'paid' ? 'disabled' : '';
+        
+        return `
+            <tr class="${status === 'paid' ? 'row-paid' : ''}">
+                <td><input type="checkbox" class="item-checkbox" data-id="${item.id}" ${isChecked} ${disableCheck}></td>
+                <td>${escapeHTML(item.produto)}<br><small class="text-muted">${escapeHTML(item.codigo)}</small></td>
+                <td>${formatBRL(item.saldo)}</td>
+                <td>${formatBRL(paid)}</td>
+                <td><strong>${formatBRL(rem)}</strong></td>
+                <td>${statusHtml}</td>
+                <td>${formatDate(item.dataEmissao)}</td>
+                <td>${escapeHTML(item.usuario)}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline" onclick="baixaIndividual(${item.id})" ${disableBtn}>Baixar</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+    
+    document.querySelectorAll('.item-checkbox').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+            const id = parseInt(e.target.dataset.id);
+            if (e.target.checked) selectedItems.add(id);
+            else selectedItems.delete(id);
+            updateBaixaButtons();
         });
     });
+}
 
-    tbody.querySelectorAll('.btn-item-pay').forEach(btn => {
-        btn.addEventListener('click', e => {
-            e.stopPropagation();
-            setItemPayment(btn.dataset.id, parseFloat(btn.dataset.saldo), 'Baixa individual');
-            refreshModal();
-            showToast('Baixa registrada!');
-        });
-    });
-
-    const sa = document.getElementById('selectAllItems');
-    if (sa) {
-        sa.checked = false;
-        sa.onchange = () => {
-            tbody.querySelectorAll('.item-check').forEach(cb => {
-                cb.checked = sa.checked;
-                const id = cb.dataset.id;
-                if (sa.checked) selectedItems.add(id); else selectedItems.delete(id);
-            });
-        };
+function updateBaixaButtons() {
+    const btnTotal = document.getElementById('btnBaixaTotal');
+    if (selectedItems.size > 0) {
+        btnTotal.textContent = `Baixar Selecionados (${selectedItems.size})`;
+        baixaMode = 'selected';
+    } else {
+        btnTotal.textContent = `Baixa Total`;
+        baixaMode = 'all';
     }
 }
 
-function refreshModal() {
-    openModal(currentModalClient);
-    applyFilters();
+window.baixaIndividual = async function(id) {
+    const item = processedData.find(d => d.id === id);
+    if (!item) return;
+    const rem = getItemRemaining(item);
+    if (rem <= 0) return;
+    
+    const ok = await registerPayment(id, rem, 'Baixa individual');
+    if (ok) {
+        showToast('Baixa registrada!');
+        applyFilters();
+        refreshModal();
+    }
+};
+
+async function handleBaixaTotal() {
+    const items = baixaMode === 'selected' 
+        ? processedData.filter(d => selectedItems.has(d.id))
+        : (clientGroups[currentModalClient] || []);
+        
+    let count = 0;
+    for (const item of items) {
+        const rem = getItemRemaining(item);
+        if (rem <= 0) continue;
+        const ok = await registerPayment(item.id, rem, baixaMode === 'selected' ? 'Baixa em lote' : 'Baixa total');
+        if (ok) count++;
+    }
+    
+    if (count > 0) {
+        showToast(`${count} baixa(s) registrada(s)!`);
+        selectedItems.clear();
+        document.getElementById('selectAllItems').checked = false;
+        applyFilters();
+        refreshModal();
+    }
 }
 
-function closeModal() {
-    document.getElementById('modalOverlay').classList.add('hidden');
-    document.body.style.overflow = '';
-}
-
-// ============================================================
-// BAIXA PARCIAL
-// ============================================================
-let baixaMode = 'client';
-function openBaixaParcial(mode) {
-    baixaMode = mode;
-    document.getElementById('baixaParcialSubtitle').textContent = mode === 'selected' ? `${selectedItems.size} item(ns) selecionado(s)` : `Cliente: ${currentModalClient}`;
+function openBaixaParcial() {
     document.getElementById('baixaValorInput').value = '';
     document.getElementById('baixaNotaInput').value = '';
+    let scopeText = baixaMode === 'selected' ? `${selectedItems.size} item(s) selecionado(s)` : currentModalClient;
+    document.getElementById('baixaParcialSubtitle').textContent = scopeText;
     document.getElementById('baixaParcialOverlay').classList.remove('hidden');
 }
 
@@ -575,204 +651,215 @@ function closeBaixaParcial() {
     document.getElementById('baixaParcialOverlay').classList.add('hidden');
 }
 
-function confirmarBaixa() {
-    const valor = parseFloat(document.getElementById('baixaValorInput').value);
-    const nota = document.getElementById('baixaNotaInput').value.trim();
-    if (!valor || valor <= 0) {
-        showToast('Informe um valor válido!');
+async function confirmarBaixaParcial() {
+    const valStr = document.getElementById('baixaValorInput').value;
+    const valor = parseFloat(valStr);
+    const nota = document.getElementById('baixaNotaInput').value;
+    
+    if (isNaN(valor) || valor <= 0) {
+        showToast('Digite um valor valido');
         return;
     }
-
+    
+    const targets = baixaMode === 'selected' 
+        ? processedData.filter(d => selectedItems.has(d.id))
+        : (clientGroups[currentModalClient] || []);
+        
+    const sortedTargets = [...targets].sort((a,b) => {
+        const da = toDateObj(a.dataEmissao), db = toDateObj(b.dataEmissao);
+        if(!da && !db) return 0; if(!da) return 1; if(!db) return -1;
+        return da - db;
+    });
+    
     let remaining = valor;
-    const itemMap = new Map(processedData.map(d => [d.id, d]));
-    const targets = baixaMode === 'selected' && selectedItems.size > 0
-        ? [...selectedItems].map(id => itemMap.get(id)).filter(Boolean)
-        : (clientGroups[currentModalClient] || []).sort((a, b) => {
-            const da = toDateObj(a.dataEmissao), db = toDateObj(b.dataEmissao);
-            if (!da && !db) return 0; if (!da) return 1; if (!db) return -1; return da - db;
-        });
-
-    for (const item of targets) {
-        const ir = getItemRemaining(item);
-        if (ir <= 0) continue;
-        const pay = Math.min(remaining, ir);
-        setItemPayment(item.id, (getItemPayment(item.id).paid || 0) + pay, nota || `Baixa parcial ${formatBRL(valor)}`);
-        remaining -= pay;
+    let count = 0;
+    for (const item of sortedTargets) {
+        const rem = getItemRemaining(item);
+        if (rem <= 0) continue;
+        const pay = Math.min(remaining, rem);
+        const ok = await registerPayment(item.id, pay, nota || `Baixa parcial ${formatBRL(valor)}`);
+        if (ok) {
+            remaining -= pay;
+            count++;
+        }
         if (remaining <= 0) break;
     }
-
+    
     closeBaixaParcial();
-    refreshModal();
-    showToast(`Baixa de ${formatBRL(valor)} registrada!`);
+    if (count > 0) {
+        showToast('Baixa parcial registrada!');
+        selectedItems.clear();
+        document.getElementById('selectAllItems').checked = false;
+        applyFilters();
+        refreshModal();
+    }
 }
 
-// ============================================================
-// COBRANÇA WHATSAPP & EXPORTAÇÃO
-// ============================================================
+async function handleDesfazerBaixas() {
+    if (!confirm(`Desfazer todas as baixas de ${currentModalClient}?`)) return;
+    await clearPaymentsForDebtor(currentModalClient);
+    showToast('Baixas desfeitas!');
+    selectedItems.clear();
+    document.getElementById('selectAllItems').checked = false;
+    applyFilters();
+    refreshModal();
+}
+
 function copyBillingText() {
     const items = clientGroups[currentModalClient] || [];
-    const pending = items.filter(d => getItemRemaining(d) > 0).sort((a, b) => {
-        const da = toDateObj(a.dataEmissao), db = toDateObj(b.dataEmissao);
-        if (!da && !db) return 0; if (!da) return 1; if (!db) return -1; return da - db;
+    let text = `Ola, somos da ${clientConfig.short_name || clientConfig.name}.\n\nSegue o extrato das suas compras:\n\n`;
+    
+    let total = 0;
+    items.forEach(item => {
+        const rem = getItemRemaining(item);
+        if (rem > 0) {
+            total += rem;
+            const dt = formatDate(item.dataEmissao);
+            text += `- ${dt}: ${item.produto} (R$ ${rem.toFixed(2)})\n`;
+        }
     });
-    const total = pending.reduce((s, d) => s + getItemRemaining(d), 0);
-
-    let text = `🥖 *${(clientConfig.name || 'EMPRESA').toUpperCase()} — EXTRATO DE FIADO*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-    text += `Olá, *${currentModalClient}*! Tudo bem?\nSegue o extrato dos lançamentos em aberto:\n\n📋 *ITENS PENDENTES:*\n`;
-    pending.forEach(item => {
-        text += `▪️ ${item.produto}\n   ↳ ${formatBRL(getItemRemaining(item))} (${formatDate(item.dataEmissao)})\n`;
-    });
-    text += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n💰 *TOTAL: ${formatBRL(total)}*\n📦 *${pending.length} item(ns)*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n*${clientConfig.name}* agradece! 🙏`;
-
-    navigator.clipboard.writeText(text).then(() => showToast('Mensagem WhatsApp copiada!')).catch(() => {
-        const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-        showToast('Copiado!');
+    
+    if (total === 0) {
+        showToast('Nao ha debitos pendentes para cobrar.');
+        return;
+    }
+    
+    text += `\n*Total em aberto: R$ ${total.toFixed(2)}*\n\nQualquer duvida, estamos a disposicao.`;
+    
+    navigator.clipboard.writeText(text).then(() => {
+        showToast('Texto copiado para o WhatsApp!');
+    }).catch(() => {
+        showToast('Erro ao copiar texto.');
     });
 }
 
 function exportClientCSV() {
     const items = clientGroups[currentModalClient] || [];
-    let csv = '\uFEFF' + clientConfig.name + ' - Extrato (QRZ Food)\nCliente;' + currentModalClient + '\n\nProduto;Valor;Pago;Restante;Status;Data;Operador\n';
+    let csv = 'Produto,Codigo,Valor Original,Pago,Restante,Data,Operador\n';
     items.forEach(item => {
-        const r = getItemRemaining(item), p = Math.min(getItemPayment(item.id).paid || 0, item.saldo), s = getItemStatus(item) === 'paid' ? 'PAGO' : getItemStatus(item) === 'partial' ? 'PARCIAL' : 'PENDENTE';
-        csv += `"${item.produto}";${formatBRL(item.saldo)};${formatBRL(p)};${formatBRL(r)};${s};${formatDateTime(item.dataEmissao)};"${item.usuario}"\n`;
+        const rem = getItemRemaining(item);
+        const paid = getItemPaid(item);
+        csv += `"${item.produto}","${item.codigo}",${item.saldo.toFixed(2)},${paid.toFixed(2)},${rem.toFixed(2)},"${formatDate(item.dataEmissao)}","${item.usuario}"\n`;
     });
-    csv += `\n;;TOTAL:;${formatBRL(items.reduce((s, d) => s + getItemRemaining(d), 0))};;;\n`;
-    const b = new Blob([csv], { type: 'text/csv;charset=utf-8;' }), u = URL.createObjectURL(b), a = document.createElement('a');
-    a.href = u; a.download = `${clientConfig.id}_${currentModalClient.replace(/\s+/g, '_').toLowerCase()}.csv`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(u);
-    showToast('CSV exportado!');
+    downloadCSV(csv, `extrato_${slugify(currentModalClient)}.csv`);
 }
 
 function exportGeneralCSV() {
-    const f = getFilteredData();
-    let csv = '\uFEFF' + clientConfig.name + ' - Relatório (QRZ Food)\n\nCliente;Produto;Valor;Pago;Restante;Status;Data;Operador\n';
-    f.forEach(item => {
-        const r = getItemRemaining(item), p = Math.min(getItemPayment(item.id).paid || 0, item.saldo), s = getItemStatus(item) === 'paid' ? 'PAGO' : getItemStatus(item) === 'partial' ? 'PARCIAL' : 'PENDENTE';
-        csv += `"${item.cliente}";"${item.produto}";${formatBRL(item.saldo)};${formatBRL(p)};${formatBRL(r)};${s};${formatDateTime(item.dataEmissao)};"${item.usuario}"\n`;
+    const data = getFilteredData();
+    let csv = 'Cliente,Produto,Codigo,Valor Original,Pago,Restante,Data,Operador\n';
+    data.forEach(item => {
+        const rem = getItemRemaining(item);
+        const paid = getItemPaid(item);
+        csv += `"${item.cliente}","${item.produto}","${item.codigo}",${item.saldo.toFixed(2)},${paid.toFixed(2)},${rem.toFixed(2)},"${formatDate(item.dataEmissao)}","${item.usuario}"\n`;
     });
-    csv += `\nTOTAL:;;;${formatBRL(f.reduce((s, d) => s + getItemRemaining(d), 0))};;\n`;
-    const b = new Blob([csv], { type: 'text/csv;charset=utf-8;' }), u = URL.createObjectURL(b), a = document.createElement('a');
-    a.href = u; a.download = `${clientConfig.id}_relatorio.csv`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(u);
-    showToast('Exportado!');
+    downloadCSV(csv, `relatorio_geral.csv`);
 }
 
-// ============================================================
-// INICIALIZAÇÃO GERAL
-// ============================================================
-document.addEventListener('DOMContentLoaded', () => {
-    initTheme();
-    initClientLogin();
+function downloadCSV(content, filename) {
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
 
-    document.getElementById('themeToggle').addEventListener('click', () => {
-        toggleTheme();
-        setTimeout(() => {
-            if (!document.getElementById('chartView').classList.contains('hidden')) {
-                renderCharts(getFilteredData());
-            }
-        }, 300);
+function setupEventListeners() {
+    document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+    document.getElementById('btnLogout').addEventListener('click', () => {
+        sessionStorage.removeItem('qrzfood_client_' + clientConfig.id);
+        window.location.reload();
     });
-
-    // Filtros instantâneos
+    
     ['filterCliente', 'filterProduto', 'filterUsuario', 'filterDataDe', 'filterDataAte', 'filterValorMin', 'filterValorMax'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', applyFilters);
+        document.getElementById(id).addEventListener('change', applyFilters);
     });
-
+    
+    document.getElementById('searchGlobal').addEventListener('input', applyFilters);
+    
     document.getElementById('btnLimpar').addEventListener('click', () => {
-        ['filterCliente', 'filterProduto', 'filterUsuario', 'filterDataDe', 'filterDataAte', 'filterValorMin', 'filterValorMax'].forEach(id => {
+        ['filterCliente', 'filterProduto', 'filterUsuario', 'filterDataDe', 'filterDataAte', 'filterValorMin', 'filterValorMax', 'searchGlobal'].forEach(id => {
             document.getElementById(id).value = '';
         });
-        document.getElementById('searchGlobal').value = '';
         activePreset = 'all';
-        document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
+        document.querySelectorAll('.preset-chip').forEach(btn => btn.classList.remove('active'));
         document.querySelector('.preset-chip[data-preset="all"]').classList.add('active');
         applyFilters();
     });
-
-    document.querySelectorAll('.preset-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-            document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
-            chip.classList.add('active');
-            activePreset = chip.dataset.preset;
+    
+    document.querySelectorAll('.preset-chip').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.preset-chip').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            activePreset = e.target.dataset.preset;
             applyFilters();
         });
     });
-
-    let st;
-    document.getElementById('searchGlobal').addEventListener('input', () => {
-        clearTimeout(st);
-        st = setTimeout(applyFilters, 150);
-    });
-
-    document.getElementById('cardSortSelect').addEventListener('change', e => {
-        currentCardSort = e.target.value;
-        renderCards();
-    });
-
-    // Abas de visualização
-    const views = { viewCards: 'cardsView', viewTable: 'tableView', viewChart: 'chartView' };
-    Object.entries(views).forEach(([btn, sec]) => {
-        document.getElementById(btn).addEventListener('click', () => {
-            document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
-            document.getElementById(btn).classList.add('active');
-            Object.values(views).forEach(v => document.getElementById(v).classList.add('hidden'));
-            document.getElementById(sec).classList.remove('hidden');
-            if (sec === 'chartView') renderCharts(getFilteredData());
-        });
-    });
-
-    // Ordenação da tabela
-    document.querySelectorAll('#dataTable th.sortable').forEach(th => {
+    
+    document.getElementById('viewCards').addEventListener('click', (e) => switchView('viewCards', e));
+    document.getElementById('viewTable').addEventListener('click', (e) => switchView('viewTable', e));
+    document.getElementById('viewChart').addEventListener('click', (e) => switchView('viewChart', e));
+    
+    function switchView(viewId, event) {
+        document.querySelectorAll('.view-tab').forEach(b => b.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById('cardsView').classList.add('hidden');
+        document.getElementById('tableView').classList.add('hidden');
+        document.getElementById('chartView').classList.add('hidden');
+        
+        if (viewId === 'viewCards') { document.getElementById('cardsView').classList.remove('hidden'); renderCards(getFilteredData()); }
+        if (viewId === 'viewTable') { document.getElementById('tableView').classList.remove('hidden'); renderTable(getFilteredData()); }
+        if (viewId === 'viewChart') { document.getElementById('chartView').classList.remove('hidden'); renderCharts(getFilteredData()); }
+    }
+    
+    document.querySelectorAll('.sortable').forEach(th => {
         th.addEventListener('click', () => {
-            const k = th.dataset.sort;
-            if (currentSort.key === k) currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
-            else { currentSort.key = k; currentSort.dir = 'asc'; }
+            const key = th.dataset.sort;
+            if (currentSort.key === key) {
+                currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.key = key;
+                currentSort.dir = 'asc';
+            }
+            document.querySelectorAll('.sort-indicator').forEach(ind => ind.textContent = '↕');
+            th.querySelector('.sort-indicator').textContent = currentSort.dir === 'asc' ? '↑' : '↓';
             renderTable(getFilteredData());
         });
     });
-
-    // Modal extrato
-    document.getElementById('modalClose').addEventListener('click', closeModal);
-    document.getElementById('btnFecharModal').addEventListener('click', closeModal);
-    document.getElementById('modalOverlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeBaixaParcial(); closeModal(); } });
-
-    document.getElementById('btnBaixaTotal').addEventListener('click', () => {
-        const items = clientGroups[currentModalClient] || [];
-        (selectedItems.size > 0 ? items.filter(d => selectedItems.has(d.id)) : items).forEach(item => setItemPayment(item.id, item.saldo, 'Baixa total'));
-        refreshModal();
-        showToast('Baixa total registrada!');
+    
+    document.getElementById('cardSortSelect').addEventListener('change', (e) => {
+        currentCardSort = e.target.value;
+        renderCards(getFilteredData());
     });
-
-    document.getElementById('btnBaixaParcial').addEventListener('click', () => openBaixaParcial(selectedItems.size > 0 ? 'selected' : 'client'));
-
-    document.getElementById('btnDesfazerBaixas').addEventListener('click', () => {
-        if (confirm(`Desfazer todas as baixas de ${currentModalClient}?`)) {
-            clearPaymentsForClient(currentModalClient);
-            refreshModal();
-            showToast('Baixas desfeitas!');
-        }
+    
+    document.getElementById('modalClose').addEventListener('click', () => document.getElementById('modalOverlay').classList.add('hidden'));
+    document.getElementById('btnFecharModal').addEventListener('click', () => document.getElementById('modalOverlay').classList.add('hidden'));
+    
+    document.getElementById('selectAllItems').addEventListener('change', (e) => {
+        const checked = e.target.checked;
+        document.querySelectorAll('.item-checkbox').forEach(cb => {
+            if (!cb.disabled) {
+                cb.checked = checked;
+                const id = parseInt(cb.dataset.id);
+                if (checked) selectedItems.add(id);
+                else selectedItems.delete(id);
+            }
+        });
+        updateBaixaButtons();
     });
-
-    document.getElementById('btnConfirmarBaixa').addEventListener('click', confirmarBaixa);
-    document.getElementById('btnCancelarBaixa').addEventListener('click', closeBaixaParcial);
+    
+    document.getElementById('btnBaixaTotal').addEventListener('click', handleBaixaTotal);
+    document.getElementById('btnBaixaParcial').addEventListener('click', openBaixaParcial);
+    document.getElementById('btnDesfazerBaixas').addEventListener('click', handleDesfazerBaixas);
+    
     document.getElementById('baixaParcialClose').addEventListener('click', closeBaixaParcial);
-    document.getElementById('baixaParcialOverlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeBaixaParcial(); });
-
+    document.getElementById('btnCancelarBaixa').addEventListener('click', closeBaixaParcial);
+    document.getElementById('btnConfirmarBaixa').addEventListener('click', confirmarBaixaParcial);
+    
     document.getElementById('btnCopiarCobranca').addEventListener('click', copyBillingText);
     document.getElementById('btnExportarCliente').addEventListener('click', exportClientCSV);
     document.getElementById('btnExportarGeral').addEventListener('click', exportGeneralCSV);
-
-    const btnLogout = document.getElementById('btnLogout');
-    if (btnLogout) {
-        btnLogout.addEventListener('click', () => {
-            if (clientConfig) sessionStorage.removeItem('qrzfood_client_' + clientConfig.id);
-            document.getElementById('appWrapper').classList.add('hidden');
-            document.getElementById('loginOverlay').classList.remove('hidden');
-            document.getElementById('loginPassword').value = '';
-            document.getElementById('loginError').classList.add('hidden');
-        });
-    }
-});
+}

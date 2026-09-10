@@ -122,6 +122,11 @@
                                 </div>
                             </div>
 
+                            <div class="filter-group">
+                                <label for="formClientEmail">E-mail de Contato (opcional)</label>
+                                <input type="email" id="formClientEmail" placeholder="contato@empresa.com">
+                            </div>
+
                             <div class="url-preview-box">
                                 <span class="url-preview-label">Link de acesso:</span>
                                 <code id="urlPreviewText">.../cliente.html?c=</code>
@@ -226,7 +231,8 @@
         <span class="toast-message" id="toastMsg">OK</span>
     </div>
 
-    <script src="clients_config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase_config.js"></script>
     <script src="shared.js"></script>
     <script src="admin.js"></script>
 </body>

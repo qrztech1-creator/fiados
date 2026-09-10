@@ -1,12 +1,16 @@
 """
 QRZ Food — Script de Atualização Automática via .MDB
-Executa a extração direta do Access (.mdb), realiza backup seguro e atualiza a base do sistema.
+1. Extrai registros da tabela contasreceber do banco Access (.mdb/.accdb)
+2. Gera backup local com timestamp em data/backups/
+3. Sincroniza via UPSERT diretamente no Supabase PostgreSQL (zero perda de dados)
+4. Registra histórico na tabela import_logs
 """
 
 import os
 import json
 import shutil
 import datetime
+import re
 
 try:
     import pypyodbc
@@ -15,12 +19,83 @@ except ImportError:
     subprocess.run(['pip', 'install', 'pypyodbc', '--quiet'])
     import pypyodbc
 
+try:
+    import psycopg2
+except ImportError:
+    import subprocess
+    subprocess.run(['pip', 'install', 'psycopg2-binary', '--quiet'])
+    import psycopg2
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MDB_DIR = os.path.join(BASE_DIR, 'dados brutos')
 BACKUP_DIR = os.path.join(BASE_DIR, 'data', 'backups')
-DATA_FILE = os.path.join(BASE_DIR, 'data', 'divino-pao.js')
 JSON_FILE = os.path.join(BASE_DIR, 'dados_fiado.json')
+DATA_FILE = os.path.join(BASE_DIR, 'data', 'divino-pao.js')
 ROOT_DADOS_JS = os.path.join(BASE_DIR, 'dados.js')
+
+DB_CONFIG = {
+    'host': 'db.vpedodwvlxztxzxcvsqj.supabase.co',
+    'port': 5432,
+    'database': 'postgres',
+    'user': 'postgres',
+    'password': 'Comisuam@e24#!',
+    'sslmode': 'require',
+}
+
+NAME_MAP = {
+    'acguaxbrasil':'ACQUAX BRASIL','acqua x brasil':'ACQUAX BRASIL','acquax':'ACQUAX BRASIL',
+    'acquax do brasil':'ACQUAX BRASIL','acquaxbrasil':'ACQUAX BRASIL','aqua':'ACQUAX BRASIL',
+    'aqua brasil':'ACQUAX BRASIL','c3':'C3 OFICINA','c3 oficina':'C3 OFICINA',
+    'c3 oficima':'C3 OFICINA',
+    'carol':'CAROL / KAROL','karol':'CAROL / KAROL',
+    'casa do construtor':'CASA DO CONSTRUTOR',
+    'dan':'DAN','davinny':'DAVINNY','davynni':'DAVINNY',
+    'eco mais':'ECO MAIS','eco+':'ECO MAIS','ecomais':'ECO MAIS','ecomaiss':'ECO MAIS',
+    'fernando':'FERNANDO DE MOURA ALVES','fernando de moura':'FERNANDO DE MOURA ALVES',
+    'fernando de moura alves':'FERNANDO DE MOURA ALVES','givanildo':'GIVANILDO',
+    'isaque':'ISAQUE','izaque':'ISAQUE','juan':'JUAN','juan padeiro':'JUAN',
+    'lagula comideria':'LAGULA COMIDERIA',
+    'larissa':'LARYSSA','laryssa':'LARYSSA','leo':'LÉO','léo padeiro':'LÉO',
+    'l\u00e9o padeiro':'LÉO','lidyane':'LIDYANE','mbr':'MBR',
+    'primicias':'PRIMÍCIAS','primicis':'PRIMÍCIAS','primicia':'PRIMÍCIAS',
+    'primícias':'PRIMÍCIAS','prim\u00edcias':'PRIMÍCIAS',
+    'rayane':'RAYANE / RAYANNE','rayanne':'RAYANE / RAYANNE',
+    'rayssa':'RAYANE / RAYANNE',
+    'stephamy':'STEPHANY','stephany':'STEPHANY','sthephane':'STEPHANY',
+    'sthephany':'STEPHANY','suport ferramenta':'SUPPORT FERRAMENTAS',
+    'suporte':'SUPPORT FERRAMENTAS','support ferramentas':'SUPPORT FERRAMENTAS',
+    'vessa':'VESSA VEÍCULOS','vessa veiculos':'VESSA VEÍCULOS',
+    'vessa veiculoa':'VESSA VEÍCULOS','versa veiculos':'VESSA VEÍCULOS',
+    'ana kallytha':'ANA KALLYTHA',
+    'andressa ganhadora':'ANDRESSA GANHADORA','arthur ferreira':'ARTHUR FERREIRA',
+    'arthuer':'ARTHUR FERREIRA','bel':'BEL','eli':'ELI','fex':'FEX','flaa':'FLAA',
+    'leandro':'LEANDRO','lilian da silva':'LILIAN DA SILVA','paulo':'PAULO',
+    'raissa':'RAISSA','raquel':'RAQUEL','resutare':'RESUTARE','ruan':'RUAN',
+    'thiago sistema':'THIAGO SISTEMA',
+}
+
+def parse_decimal(val):
+    if not val or val == 'None':
+        return 0.0
+    return float(str(val).replace('.', '').replace(',', '.'))
+
+def parse_date(val):
+    if not val or not str(val).strip():
+        return None
+    s = str(val).strip()
+    try:
+        return datetime.datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
+    except Exception:
+        try:
+            return datetime.datetime.strptime(s, '%Y-%m-%d')
+        except Exception:
+            return None
+
+def normalize_name(raw):
+    if not raw or not str(raw).strip():
+        return 'SEM NOME'
+    s = str(raw).strip()
+    return NAME_MAP.get(s.lower(), NAME_MAP.get(s, s.upper()))
 
 def find_mdb_file():
     if not os.path.exists(MDB_DIR):
@@ -29,35 +104,33 @@ def find_mdb_file():
     for f in os.listdir(MDB_DIR):
         if f.lower().endswith(('.mdb', '.accdb')):
             return os.path.join(MDB_DIR, f)
-    # Procurar na raiz também
     for f in os.listdir(BASE_DIR):
         if f.lower().endswith(('.mdb', '.accdb')):
             return os.path.join(BASE_DIR, f)
     return None
 
-def extract_data():
+def extract_and_sync(client_id='divino-pao'):
     mdb_path = find_mdb_file()
     if not mdb_path:
-        print(f"❌ Nenhum arquivo .mdb ou .accdb encontrado na pasta '{MDB_DIR}' ou na raiz.")
+        print(f"[!] Nenhum arquivo .mdb ou .accdb encontrado em '{MDB_DIR}' ou na raiz.")
         return
 
-    print(f"📂 Lendo banco Access: {mdb_path}")
+    print(f"[+] Lendo banco Access: {mdb_path}")
     conn_str = f"Driver={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={mdb_path}"
     
     try:
         conn = pypyodbc.connect(conn_str)
     except Exception as e:
-        print(f"❌ Erro ao conectar ao MDB: {e}")
+        print(f"[-] Erro ao conectar ao MDB: {e}")
         return
 
     cursor = conn.cursor()
-    
     try:
         cursor.execute("SELECT * FROM contasreceber")
         cols = [desc[0] for desc in cursor.description]
         rows = cursor.fetchall()
     except Exception as e:
-        print(f"❌ Erro ao consultar tabela 'contasreceber': {e}")
+        print(f"[-] Erro ao consultar tabela 'contasreceber': {e}")
         conn.close()
         return
 
@@ -74,35 +147,102 @@ def extract_data():
                 val = str(val)
             rec[c] = val
         records.append(rec)
-
     conn.close()
-    print(f"✅ Total de {len(records)} registros extraídos com sucesso!")
 
-    # 1. Backup com Timestamp
+    print(f"[+] Total de {len(records)} registros extraídos do Access.")
+
+    # 1. Backup Local com Timestamp
     os.makedirs(BACKUP_DIR, exist_ok=True)
     ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    if os.path.exists(DATA_FILE):
-        bkp_path = os.path.join(BACKUP_DIR, f"divino-pao_bkp_{ts}.js")
-        shutil.copy2(DATA_FILE, bkp_path)
-        print(f"📦 Backup do arquivo anterior salvo em: {bkp_path}")
+    bkp_path = os.path.join(BACKUP_DIR, f"mdb_backup_{ts}.json")
+    with open(bkp_path, 'w', encoding='utf-8') as f:
+        json.dump(records, f, ensure_ascii=False, indent=2)
+    print(f"[+] Backup salvo em: {bkp_path}")
 
-    # 2. Gravar data/divino-pao.js
-    js_content = "const EMBEDDED_DATA = " + json.dumps(records, ensure_ascii=False, indent=2) + ";\n"
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        f.write(js_content)
-    print(f"🚀 Atualizado: {DATA_FILE}")
-
-    # 3. Gravar dados_fiado.json
+    # Atualizar dados_fiado.json local também
     with open(JSON_FILE, 'w', encoding='utf-8') as f:
         json.dump(records, f, ensure_ascii=False, indent=2)
-    print(f"🚀 Atualizado: {JSON_FILE}")
 
-    # 4. Gravar dados.js na raiz
-    with open(ROOT_DADOS_JS, 'w', encoding='utf-8') as f:
-        f.write(js_content)
-    print(f"🚀 Atualizado: {ROOT_DADOS_JS}")
+    # 2. Sincronizar com Supabase PostgreSQL
+    print("[+] Conectando ao Supabase PostgreSQL...")
+    try:
+        pg_conn = psycopg2.connect(**DB_CONFIG)
+        pg_conn.autocommit = True
+        pg_cur = pg_conn.cursor()
+    except Exception as e:
+        print(f"[-] Erro ao conectar ao PostgreSQL: {e}")
+        return
 
-    print("\n🎉 Atualização concluída sem perda de dados!")
+    batch_id = f"mdb_sync_{ts}"
+    inserted_updated = 0
+    errors = 0
+
+    for row in records:
+        indice_val = row.get('indice', '')
+        if not str(indice_val).strip():
+            errors += 1
+            continue
+        try:
+            indice_int = int(indice_val)
+        except Exception:
+            errors += 1
+            continue
+
+        banco_raw = (row.get('banco') or '').strip()
+        banco_norm = normalize_name(banco_raw)
+        valor = parse_decimal(row.get('valor', '0'))
+        saldo = parse_decimal(row.get('saldoatual', '0'))
+        data_emi = parse_date(row.get('dataemi', ''))
+        usuario = (row.get('usuarioatual') or '').strip()
+        fatura = (row.get('fatura') or row.get('portador') or '').strip()
+        historico = (row.get('historico') or '').strip()
+        parcela = (row.get('parcela') or '').strip()
+
+        try:
+            pg_cur.execute("""
+                INSERT INTO public.records 
+                    (client_id, indice, banco, banco_normalized, fatura, historico, 
+                     valor, saldo_atual, data_emissao, usuario, parcela, batch)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (client_id, indice) DO UPDATE SET
+                    banco = EXCLUDED.banco,
+                    banco_normalized = EXCLUDED.banco_normalized,
+                    fatura = EXCLUDED.fatura,
+                    historico = EXCLUDED.historico,
+                    valor = EXCLUDED.valor,
+                    saldo_atual = EXCLUDED.saldo_atual,
+                    data_emissao = EXCLUDED.data_emissao,
+                    usuario = EXCLUDED.usuario,
+                    parcela = EXCLUDED.parcela,
+                    batch = EXCLUDED.batch
+            """, (
+                client_id, indice_int, banco_raw, banco_norm, fatura, historico,
+                valor, saldo, data_emi, usuario, parcela, batch_id
+            ))
+            inserted_updated += 1
+        except Exception as e:
+            print(f"[-] Erro ao inserir indice {indice_int}: {e}")
+            errors += 1
+
+    # Registrar log de importação
+    filename = os.path.basename(mdb_path)
+    pg_cur.execute("""
+        INSERT INTO public.import_logs (client_id, filename, record_count, imported_by)
+        VALUES (%s, %s, %s, %s)
+    """, (client_id, filename, inserted_updated, 'atualizar_mdb.py'))
+
+    # Conferência
+    pg_cur.execute("SELECT COUNT(*) FROM public.records WHERE client_id = %s", (client_id,))
+    total_db = pg_cur.fetchone()[0]
+    pg_cur.execute("SELECT COALESCE(SUM(saldo_atual), 0) FROM public.records WHERE client_id = %s", (client_id,))
+    total_saldo = pg_cur.fetchone()[0]
+    pg_conn.close()
+
+    print(f"\n[OK] Sincronização com Supabase concluída com sucesso!")
+    print(f"     Registros processados: {inserted_updated}")
+    print(f"     Erros: {errors}")
+    print(f"     Total no banco Supabase: {total_db}")
+    print(f"     Saldo total em aberto: R$ {total_saldo:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
 
 if __name__ == '__main__':
-    extract_data()
+    extract_and_sync()
