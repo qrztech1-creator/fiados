@@ -404,3 +404,213 @@ body{background:var(--bg-base);color:var(--text-primary);min-height:100vh;displa
     transform: scale(1.15);
     box-shadow: 0 0 0 2px var(--bg-surface);
 }
+
+/* ========== DATE FILTER BANNER (MAIN DASHBOARD) ========== */
+.date-filter-banner {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-base);
+    border-radius: 14px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.15rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    box-shadow: var(--shadow-xs);
+}
+
+.date-banner-left {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.date-banner-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.88rem;
+    color: var(--text-primary);
+}
+
+.date-banner-title svg {
+    color: var(--accent);
+}
+
+.date-range-inputs {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.date-input-box {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.date-input-box input[type="date"] {
+    padding: 0.4rem 0.65rem;
+    border: 1px solid var(--border-base);
+    border-radius: 8px;
+    font-size: 0.82rem;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color .15s, box-shadow .15s;
+}
+
+.date-input-box input[type="date"]:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+}
+
+.date-banner-chips {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.date-quick-btn {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    font-size: 0.76rem;
+    font-weight: 600;
+    padding: 0.38rem 0.75rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all .15s ease;
+}
+
+.date-quick-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+}
+
+.date-quick-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+    font-weight: 700;
+    box-shadow: 0 2px 6px var(--accent-subtle);
+}
+
+/* ========== MODAL DATE BANNER (INSIDE CLIENT MODAL) ========== */
+.modal-date-banner {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-base);
+    border-radius: 12px;
+    padding: 0.9rem 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.modal-date-banner-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.modal-date-title {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.84rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.modal-date-title svg {
+    color: var(--accent);
+}
+
+.modal-date-chips {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.modal-quick-btn {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.3rem 0.65rem;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all .15s ease;
+}
+
+.modal-quick-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+}
+
+.modal-quick-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+    font-weight: 700;
+}
+
+.modal-date-inputs-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.modal-date-field {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.modal-date-field input[type="date"] {
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--border-base);
+    border-radius: 7px;
+    font-size: 0.78rem;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color .15s;
+}
+
+.modal-date-field input[type="date"]:focus {
+    border-color: var(--accent);
+}
+
+.modal-filter-indicator {
+    margin-left: auto;
+    font-size: 0.76rem;
+    font-weight: 700;
+    padding: 0.25rem 0.65rem;
+    border-radius: 6px;
+    background: var(--accent-subtle);
+    color: var(--accent);
+    border: 1px solid var(--accent-border);
+}
+
+.modal-filter-indicator.unfiltered {
+    background: var(--bg-subtle);
+    color: var(--text-muted);
+    border-color: var(--border-subtle);
+}

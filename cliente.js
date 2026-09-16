@@ -501,6 +501,93 @@ function renderCharts(data) {
     });
 }
 
+// ============================================================
+// AUXILIARES DE DATA E PERÍODO
+// ============================================================
+function getDateRangeValues(rangeType) {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const toYMD = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    
+    if (rangeType === 'today') {
+        const todayStr = toYMD(now);
+        return { de: todayStr, ate: todayStr };
+    }
+    if (rangeType === 'yesterday') {
+        const y = new Date(now);
+        y.setDate(y.getDate() - 1);
+        const yStr = toYMD(y);
+        return { de: yStr, ate: yStr };
+    }
+    if (rangeType === 'last7') {
+        const d = new Date(now);
+        d.setDate(d.getDate() - 7);
+        return { de: toYMD(d), ate: toYMD(now) };
+    }
+    if (rangeType === 'thisMonth') {
+        const first = new Date(now.getFullYear(), now.getMonth(), 1);
+        const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        return { de: toYMD(first), ate: toYMD(last) };
+    }
+    if (rangeType === 'lastMonth') {
+        const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const last = new Date(now.getFullYear(), now.getMonth(), 0);
+        return { de: toYMD(first), ate: toYMD(last) };
+    }
+    return { de: '', ate: '' };
+}
+
+function formatYMDToBR(ymd) {
+    if (!ymd) return '';
+    const parts = ymd.split('-');
+    if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return formatDate(ymd);
+}
+
+// ============================================================
+// MODAL EXTRATO E FILTRAGEM
+// ============================================================
+function getModalFilteredItems() {
+    const allItems = clientGroups[currentModalClient] || [];
+    const deInput = document.getElementById('modalFilterDataDe');
+    const ateInput = document.getElementById('modalFilterDataAte');
+    
+    const deVal = deInput ? deInput.value : '';
+    const ateVal = ateInput ? ateInput.value : '';
+    
+    const dateDe = deVal ? new Date(deVal + 'T00:00:00') : null;
+    const dateAte = ateVal ? new Date(ateVal + 'T23:59:59') : null;
+    
+    if (!dateDe && !dateAte) return allItems;
+    
+    return allItems.filter(item => {
+        const dt = toDateObj(item.dataEmissao);
+        if (!dt) return true;
+        if (dateDe && dt < dateDe) return false;
+        if (dateAte && dt > dateAte) return false;
+        return true;
+    });
+}
+
+function updateModalChipsActive() {
+    const deVal = document.getElementById('modalFilterDataDe').value;
+    const ateVal = document.getElementById('modalFilterDataAte').value;
+    const panelDe = document.getElementById('filterDataDe').value;
+    const panelAte = document.getElementById('filterDataAte').value;
+    
+    document.querySelectorAll('.modal-quick-btn').forEach(btn => btn.classList.remove('active'));
+    
+    if (!deVal && !ateVal) {
+        const btnAll = document.getElementById('btnModalAllDates');
+        if (btnAll) btnAll.classList.add('active');
+    } else if (deVal === panelDe && ateVal === panelAte && (panelDe || panelAte)) {
+        const btnPanel = document.getElementById('btnModalPanelDates');
+        if (btnPanel) btnPanel.classList.add('active');
+    }
+}
+
 window.openModal = function(clientName) {
     currentModalClient = clientName;
     selectedItems.clear();
@@ -509,12 +596,21 @@ window.openModal = function(clientName) {
     document.getElementById('modalClientName').textContent = clientName;
     document.getElementById('selectAllItems').checked = false;
     
+    // Herda automaticamente o filtro de data ativo na tela principal
+    const panelDe = document.getElementById('filterDataDe').value;
+    const panelAte = document.getElementById('filterDataAte').value;
+    
+    document.getElementById('modalFilterDataDe').value = panelDe || '';
+    document.getElementById('modalFilterDataAte').value = panelAte || '';
+    
+    updateModalChipsActive();
     refreshModal();
     document.getElementById('modalOverlay').classList.remove('hidden');
 };
 
 function refreshModal() {
-    const items = clientGroups[currentModalClient] || [];
+    const allItems = clientGroups[currentModalClient] || [];
+    const items = getModalFilteredItems();
     
     let totalDebt = 0;
     let pendingCount = 0;
@@ -530,12 +626,32 @@ function refreshModal() {
         }
     });
     
-    document.getElementById('modalClientSummary').textContent = `${pendingCount} lancamento(s) pendente(s) | Total de historico: ${items.length}`;
+    const deVal = document.getElementById('modalFilterDataDe').value;
+    const ateVal = document.getElementById('modalFilterDataAte').value;
+    const isFiltered = !!(deVal || ateVal);
+    
+    const indicator = document.getElementById('modalFilterIndicator');
+    if (indicator) {
+        if (isFiltered) {
+            indicator.className = 'modal-filter-indicator';
+            let rangeText = '';
+            if (deVal && ateVal) rangeText = deVal === ateVal ? formatYMDToBR(deVal) : `${formatYMDToBR(deVal)} a ${formatYMDToBR(ateVal)}`;
+            else if (deVal) rangeText = `A partir de ${formatYMDToBR(deVal)}`;
+            else rangeText = `Até ${formatYMDToBR(ateVal)}`;
+            
+            indicator.textContent = `Filtrado: ${items.length} de ${allItems.length} lançamentos (${rangeText})`;
+            document.getElementById('modalClientSummary').textContent = `${pendingCount} lançamento(s) pendente(s) no período selecionado (Total no histórico: ${allItems.length})`;
+        } else {
+            indicator.className = 'modal-filter-indicator unfiltered';
+            indicator.textContent = `Todo o Histórico (${allItems.length} lançamentos)`;
+            document.getElementById('modalClientSummary').textContent = `${pendingCount} lançamento(s) pendente(s) | Total de histórico: ${allItems.length}`;
+        }
+    }
     
     document.getElementById('modalStats').innerHTML = `
-        <div class="modal-kpi-card"><div class="modal-kpi-label">Debito Atual</div><div class="modal-kpi-val text-accent">${formatBRL(totalDebt)}</div></div>
-        <div class="modal-kpi-card"><div class="modal-kpi-label">Ja Pago (Historico)</div><div class="modal-kpi-val text-green">${formatBRL(paidTotal)}</div></div>
-        <div class="modal-kpi-card"><div class="modal-kpi-label">Lancamentos Pendentes</div><div class="modal-kpi-val">${pendingCount}</div></div>
+        <div class="modal-kpi-card"><div class="modal-kpi-label">${isFiltered ? 'Débito no Período' : 'Débito Atual'}</div><div class="modal-kpi-val text-accent">${formatBRL(totalDebt)}</div></div>
+        <div class="modal-kpi-card"><div class="modal-kpi-label">${isFiltered ? 'Pago no Período' : 'Já Pago (Histórico)'}</div><div class="modal-kpi-val text-green">${formatBRL(paidTotal)}</div></div>
+        <div class="modal-kpi-card"><div class="modal-kpi-label">${isFiltered ? 'Pendentes no Período' : 'Lançamentos Pendentes'}</div><div class="modal-kpi-val">${pendingCount}</div></div>
     `;
     
     renderModalTable(items);
@@ -550,6 +666,11 @@ function renderModalTable(items) {
         if(!da && !db) return 0; if(!da) return 1; if(!db) return -1;
         return db - da;
     });
+    
+    if (sorted.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--text-muted)">Nenhum lançamento encontrado para o período selecionado.</td></tr>`;
+        return;
+    }
     
     tbody.innerHTML = sorted.map(item => {
         const rem = getItemRemaining(item);
@@ -594,11 +715,18 @@ function renderModalTable(items) {
 
 function updateBaixaButtons() {
     const btnTotal = document.getElementById('btnBaixaTotal');
+    const deVal = document.getElementById('modalFilterDataDe').value;
+    const ateVal = document.getElementById('modalFilterDataAte').value;
+    const isFiltered = !!(deVal || ateVal);
+    
     if (selectedItems.size > 0) {
         btnTotal.textContent = `Baixar Selecionados (${selectedItems.size})`;
         baixaMode = 'selected';
+    } else if (isFiltered) {
+        btnTotal.textContent = `✓ Baixar Período`;
+        baixaMode = 'all';
     } else {
-        btnTotal.textContent = `Baixa Total`;
+        btnTotal.textContent = `✓ Baixa Total`;
         baixaMode = 'all';
     }
 }
@@ -620,13 +748,35 @@ window.baixaIndividual = async function(id) {
 async function handleBaixaTotal() {
     const items = baixaMode === 'selected' 
         ? processedData.filter(d => selectedItems.has(d.id))
-        : (clientGroups[currentModalClient] || []);
+        : getModalFilteredItems();
         
+    const pendingItems = items.filter(i => getItemRemaining(i) > 0);
+    if (pendingItems.length === 0) {
+        showToast('Não há lançamentos pendentes para baixar no período.');
+        return;
+    }
+    
+    const totalToPay = pendingItems.reduce((acc, i) => acc + getItemRemaining(i), 0);
+    const deVal = document.getElementById('modalFilterDataDe').value;
+    const ateVal = document.getElementById('modalFilterDataAte').value;
+    const isFiltered = !!(deVal || ateVal);
+    
+    let confirmMsg = '';
+    if (baixaMode === 'selected') {
+        confirmMsg = `Confirmar baixa de ${pendingItems.length} item(s) selecionado(s) no valor total de ${formatBRL(totalToPay)}?`;
+    } else if (isFiltered) {
+        confirmMsg = `Confirmar baixa de ${pendingItems.length} lançamento(s) do PERÍODO FILTRADO no valor de ${formatBRL(totalToPay)} para ${currentModalClient}?`;
+    } else {
+        confirmMsg = `Confirmar baixa total de ${pendingItems.length} lançamento(s) no valor de ${formatBRL(totalToPay)} para ${currentModalClient}?`;
+    }
+    
+    if (!confirm(confirmMsg)) return;
+    
     let count = 0;
-    for (const item of items) {
+    for (const item of pendingItems) {
         const rem = getItemRemaining(item);
-        if (rem <= 0) continue;
-        const ok = await registerPayment(item.id, rem, baixaMode === 'selected' ? 'Baixa em lote' : 'Baixa total');
+        const desc = baixaMode === 'selected' ? 'Baixa em lote' : (isFiltered ? 'Baixa por período' : 'Baixa total');
+        const ok = await registerPayment(item.id, rem, desc);
         if (ok) count++;
     }
     
@@ -642,7 +792,11 @@ async function handleBaixaTotal() {
 function openBaixaParcial() {
     document.getElementById('baixaValorInput').value = '';
     document.getElementById('baixaNotaInput').value = '';
-    let scopeText = baixaMode === 'selected' ? `${selectedItems.size} item(s) selecionado(s)` : currentModalClient;
+    const isFiltered = !!(document.getElementById('modalFilterDataDe').value || document.getElementById('modalFilterDataAte').value);
+    let scopeText = baixaMode === 'selected' 
+        ? `${selectedItems.size} item(s) selecionado(s)` 
+        : (isFiltered ? `${currentModalClient} (Período filtrado)` : currentModalClient);
+        
     document.getElementById('baixaParcialSubtitle').textContent = scopeText;
     document.getElementById('baixaParcialOverlay').classList.remove('hidden');
 }
@@ -657,13 +811,13 @@ async function confirmarBaixaParcial() {
     const nota = document.getElementById('baixaNotaInput').value;
     
     if (isNaN(valor) || valor <= 0) {
-        showToast('Digite um valor valido');
+        showToast('Digite um valor válido');
         return;
     }
     
     const targets = baixaMode === 'selected' 
         ? processedData.filter(d => selectedItems.has(d.id))
-        : (clientGroups[currentModalClient] || []);
+        : getModalFilteredItems();
         
     const sortedTargets = [...targets].sort((a,b) => {
         const da = toDateObj(a.dataEmissao), db = toDateObj(b.dataEmissao);
@@ -706,8 +860,18 @@ async function handleDesfazerBaixas() {
 }
 
 function copyBillingText() {
-    const items = clientGroups[currentModalClient] || [];
-    let text = `Ola, somos da ${clientConfig.short_name || clientConfig.name}.\n\nSegue o extrato das suas compras:\n\n`;
+    const items = getModalFilteredItems();
+    const deVal = document.getElementById('modalFilterDataDe').value;
+    const ateVal = document.getElementById('modalFilterDataAte').value;
+    const isFiltered = !!(deVal || ateVal);
+    
+    let text = `Olá, somos da ${clientConfig.short_name || clientConfig.name}.\n\nSegue o extrato das suas compras`;
+    if (isFiltered) {
+        if (deVal && ateVal) text += ` (${formatYMDToBR(deVal)} a ${formatYMDToBR(ateVal)})`;
+        else if (deVal) text += ` (a partir de ${formatYMDToBR(deVal)})`;
+        else text += ` (até ${formatYMDToBR(ateVal)})`;
+    }
+    text += `:\n\n`;
     
     let total = 0;
     items.forEach(item => {
@@ -720,11 +884,11 @@ function copyBillingText() {
     });
     
     if (total === 0) {
-        showToast('Nao ha debitos pendentes para cobrar.');
+        showToast('Não há débitos pendentes para cobrar no período.');
         return;
     }
     
-    text += `\n*Total em aberto: R$ ${total.toFixed(2)}*\n\nQualquer duvida, estamos a disposicao.`;
+    text += `\n*Total em aberto: R$ ${total.toFixed(2)}*\n\nQualquer dúvida, estamos à disposição.`;
     
     navigator.clipboard.writeText(text).then(() => {
         showToast('Texto copiado para o WhatsApp!');
@@ -734,7 +898,7 @@ function copyBillingText() {
 }
 
 function exportClientCSV() {
-    const items = clientGroups[currentModalClient] || [];
+    const items = getModalFilteredItems();
     let csv = 'Produto,Codigo,Valor Original,Pago,Restante,Data,Operador\n';
     items.forEach(item => {
         const rem = getItemRemaining(item);
@@ -767,6 +931,9 @@ function downloadCSV(content, filename) {
     document.body.removeChild(link);
 }
 
+// ============================================================
+// EVENT LISTENERS GERAIS
+// ============================================================
 function setupEventListeners() {
     document.getElementById('themeToggle').addEventListener('click', toggleTheme);
     document.getElementById('btnLogout').addEventListener('click', () => {
@@ -774,22 +941,70 @@ function setupEventListeners() {
         window.location.reload();
     });
     
-    ['filterCliente', 'filterProduto', 'filterUsuario', 'filterDataDe', 'filterDataAte', 'filterValorMin', 'filterValorMax'].forEach(id => {
-        document.getElementById(id).addEventListener('change', applyFilters);
+    // Inputs de filtro do painel principal
+    ['filterCliente', 'filterProduto', 'filterUsuario', 'filterValorMin', 'filterValorMax'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', applyFilters);
+            el.addEventListener('input', applyFilters);
+        }
     });
     
+    // Filtro de data do painel principal
+    const mainDe = document.getElementById('filterDataDe');
+    const mainAte = document.getElementById('filterDataAte');
+    
+    const onMainDateChange = () => {
+        // Atualiza estilo dos chips de data rápida do painel
+        document.querySelectorAll('.date-quick-btn').forEach(btn => btn.classList.remove('active'));
+        if (!mainDe.value && !mainAte.value) {
+            const allBtn = document.querySelector('.date-quick-btn[data-range="all"]');
+            if (allBtn) allBtn.classList.add('active');
+        }
+        applyFilters();
+    };
+    
+    if (mainDe) {
+        mainDe.addEventListener('change', onMainDateChange);
+        mainDe.addEventListener('input', onMainDateChange);
+    }
+    if (mainAte) {
+        mainAte.addEventListener('change', onMainDateChange);
+        mainAte.addEventListener('input', onMainDateChange);
+    }
+    
+    // Botões de período rápido do painel principal (Hoje, Ontem, etc.)
+    document.querySelectorAll('.date-quick-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.date-quick-btn').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            const range = e.target.dataset.range;
+            const { de, ate } = getDateRangeValues(range);
+            mainDe.value = de;
+            mainAte.value = ate;
+            applyFilters();
+        });
+    });
+    
+    // Busca global instantânea
     document.getElementById('searchGlobal').addEventListener('input', applyFilters);
     
+    // Limpar filtros gerais
     document.getElementById('btnLimpar').addEventListener('click', () => {
         ['filterCliente', 'filterProduto', 'filterUsuario', 'filterDataDe', 'filterDataAte', 'filterValorMin', 'filterValorMax', 'searchGlobal'].forEach(id => {
-            document.getElementById(id).value = '';
+            const el = document.getElementById(id);
+            if (el) el.value = '';
         });
         activePreset = 'all';
         document.querySelectorAll('.preset-chip').forEach(btn => btn.classList.remove('active'));
         document.querySelector('.preset-chip[data-preset="all"]').classList.add('active');
+        document.querySelectorAll('.date-quick-btn').forEach(btn => btn.classList.remove('active'));
+        const allDateBtn = document.querySelector('.date-quick-btn[data-range="all"]');
+        if (allDateBtn) allDateBtn.classList.add('active');
         applyFilters();
     });
     
+    // Presets de status (Todos, Pendentes, Parcial, Pagos, etc.)
     document.querySelectorAll('.preset-chip').forEach(btn => {
         btn.addEventListener('click', (e) => {
             document.querySelectorAll('.preset-chip').forEach(b => b.classList.remove('active'));
@@ -799,6 +1014,7 @@ function setupEventListeners() {
         });
     });
     
+    // Alternadores de visualização (Cards / Tabela / Gráfico)
     document.getElementById('viewCards').addEventListener('click', (e) => switchView('viewCards', e));
     document.getElementById('viewTable').addEventListener('click', (e) => switchView('viewTable', e));
     document.getElementById('viewChart').addEventListener('click', (e) => switchView('viewChart', e));
@@ -815,6 +1031,7 @@ function setupEventListeners() {
         if (viewId === 'viewChart') { document.getElementById('chartView').classList.remove('hidden'); renderCharts(getFilteredData()); }
     }
     
+    // Ordenação da tabela geral
     document.querySelectorAll('.sortable').forEach(th => {
         th.addEventListener('click', () => {
             const key = th.dataset.sort;
@@ -830,14 +1047,70 @@ function setupEventListeners() {
         });
     });
     
+    // Ordenação dos cards
     document.getElementById('cardSortSelect').addEventListener('change', (e) => {
         currentCardSort = e.target.value;
         renderCards(getFilteredData());
     });
     
+    // Controles do Modal de Extrato
     document.getElementById('modalClose').addEventListener('click', () => document.getElementById('modalOverlay').classList.add('hidden'));
     document.getElementById('btnFecharModal').addEventListener('click', () => document.getElementById('modalOverlay').classList.add('hidden'));
     
+    // Filtros de Data DENTRO do Modal
+    const modalDe = document.getElementById('modalFilterDataDe');
+    const modalAte = document.getElementById('modalFilterDataAte');
+    
+    const onModalDateChange = () => {
+        updateModalChipsActive();
+        refreshModal();
+    };
+    
+    if (modalDe) {
+        modalDe.addEventListener('change', onModalDateChange);
+        modalDe.addEventListener('input', onModalDateChange);
+    }
+    if (modalAte) {
+        modalAte.addEventListener('change', onModalDateChange);
+        modalAte.addEventListener('input', onModalDateChange);
+    }
+    
+    // Botões de período rápido DENTRO do modal
+    document.querySelectorAll('.modal-quick-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.modal-quick-btn').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            const mrange = e.target.dataset.mrange;
+            
+            if (mrange === 'panel') {
+                modalDe.value = mainDe.value;
+                modalAte.value = mainAte.value;
+            } else if (mrange === 'all') {
+                modalDe.value = '';
+                modalAte.value = '';
+            } else {
+                const { de, ate } = getDateRangeValues(mrange);
+                modalDe.value = de;
+                modalAte.value = ate;
+            }
+            refreshModal();
+        });
+    });
+    
+    // Botão Limpar Filtro de Data dentro do modal
+    const btnLimparModalData = document.getElementById('btnModalLimparData');
+    if (btnLimparModalData) {
+        btnLimparModalData.addEventListener('click', () => {
+            modalDe.value = '';
+            modalAte.value = '';
+            document.querySelectorAll('.modal-quick-btn').forEach(b => b.classList.remove('active'));
+            const btnAll = document.getElementById('btnModalAllDates');
+            if (btnAll) btnAll.classList.add('active');
+            refreshModal();
+        });
+    }
+    
+    // Seleção de itens no modal
     document.getElementById('selectAllItems').addEventListener('change', (e) => {
         const checked = e.target.checked;
         document.querySelectorAll('.item-checkbox').forEach(cb => {
@@ -851,14 +1124,17 @@ function setupEventListeners() {
         updateBaixaButtons();
     });
     
+    // Ações de Baixa no Modal
     document.getElementById('btnBaixaTotal').addEventListener('click', handleBaixaTotal);
     document.getElementById('btnBaixaParcial').addEventListener('click', openBaixaParcial);
     document.getElementById('btnDesfazerBaixas').addEventListener('click', handleDesfazerBaixas);
     
+    // Modal de Baixa Parcial
     document.getElementById('baixaParcialClose').addEventListener('click', closeBaixaParcial);
     document.getElementById('btnCancelarBaixa').addEventListener('click', closeBaixaParcial);
     document.getElementById('btnConfirmarBaixa').addEventListener('click', confirmarBaixaParcial);
     
+    // Exportações do Modal
     document.getElementById('btnCopiarCobranca').addEventListener('click', copyBillingText);
     document.getElementById('btnExportarCliente').addEventListener('click', exportClientCSV);
     document.getElementById('btnExportarGeral').addEventListener('click', exportGeneralCSV);

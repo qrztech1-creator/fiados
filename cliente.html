@@ -83,10 +83,38 @@
         <main class="main">
             <!-- FILTERS -->
             <section class="filters-card">
+                <!-- BARRA DE DATA PRIORITÁRIA (LÁ NO INÍCIO) -->
+                <div class="date-filter-banner">
+                    <div class="date-banner-left">
+                        <div class="date-banner-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="10" y1="10" y2="10"/></svg>
+                            <strong>Filtrar por Período:</strong>
+                        </div>
+                        <div class="date-range-inputs">
+                            <div class="date-input-box">
+                                <label for="filterDataDe">De:</label>
+                                <input type="date" id="filterDataDe">
+                            </div>
+                            <div class="date-input-box">
+                                <label for="filterDataAte">Até:</label>
+                                <input type="date" id="filterDataAte">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="date-banner-chips">
+                        <button type="button" class="date-quick-btn active" data-range="all">Todo Histórico</button>
+                        <button type="button" class="date-quick-btn" data-range="today">Hoje</button>
+                        <button type="button" class="date-quick-btn" data-range="yesterday">Ontem</button>
+                        <button type="button" class="date-quick-btn" data-range="last7">Últimos 7 dias</button>
+                        <button type="button" class="date-quick-btn" data-range="thisMonth">Este Mês</button>
+                        <button type="button" class="date-quick-btn" data-range="lastMonth">Mês Passado</button>
+                    </div>
+                </div>
+
                 <div class="filters-card-header">
                     <div class="filters-title-group">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                        <span>Filtros (aplicação instantânea)</span>
+                        <span>Filtros Adicionais</span>
                     </div>
                     <div class="quick-presets">
                         <button class="preset-chip active" data-preset="all">Todos</button>
@@ -101,11 +129,9 @@
                     <div class="filter-group"><label for="filterCliente">Cliente</label><select id="filterCliente"><option value="">Todos</option></select></div>
                     <div class="filter-group"><label for="filterProduto">Produto</label><select id="filterProduto"><option value="">Todos</option></select></div>
                     <div class="filter-group"><label for="filterUsuario">Operador</label><select id="filterUsuario"><option value="">Todos</option></select></div>
-                    <div class="filter-group"><label for="filterDataDe">De</label><input type="date" id="filterDataDe"></div>
-                    <div class="filter-group"><label for="filterDataAte">Até</label><input type="date" id="filterDataAte"></div>
-                    <div class="filter-group"><label for="filterValorMin">Mín.</label><input type="number" id="filterValorMin" step="0.01" min="0" placeholder="0"></div>
-                    <div class="filter-group"><label for="filterValorMax">Máx.</label><input type="number" id="filterValorMax" step="0.01" min="0" placeholder="999"></div>
-                    <div class="filter-group"><label>&nbsp;</label><button class="btn btn-secondary btn-sm" id="btnLimpar">Limpar</button></div>
+                    <div class="filter-group"><label for="filterValorMin">Mín. (R$)</label><input type="number" id="filterValorMin" step="0.01" min="0" placeholder="0"></div>
+                    <div class="filter-group"><label for="filterValorMax">Máx. (R$)</label><input type="number" id="filterValorMax" step="0.01" min="0" placeholder="999"></div>
+                    <div class="filter-group"><label>&nbsp;</label><button class="btn btn-secondary btn-sm" id="btnLimpar">Limpar Filtros</button></div>
                 </div>
                 <div class="search-and-view-bar">
                     <div class="search-input-wrapper">
@@ -171,6 +197,35 @@
                     <button class="modal-close-button" id="modalClose"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
                 </div>
                 <div class="modal-content-scroll">
+                    <!-- FILTRO DE PERÍODO DENTRO DO EXTRATO -->
+                    <div class="modal-date-banner">
+                        <div class="modal-date-banner-top">
+                            <div class="modal-date-title">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="10" y1="10" y2="10"/></svg>
+                                <span>Período deste Extrato:</span>
+                            </div>
+                            <div class="modal-date-chips">
+                                <button type="button" class="modal-quick-btn active" data-mrange="all" id="btnModalAllDates">Todo Histórico</button>
+                                <button type="button" class="modal-quick-btn" data-mrange="panel" id="btnModalPanelDates">Período do Painel</button>
+                                <button type="button" class="modal-quick-btn" data-mrange="today">Hoje</button>
+                                <button type="button" class="modal-quick-btn" data-mrange="last7">7 dias</button>
+                                <button type="button" class="modal-quick-btn" data-mrange="thisMonth">Este Mês</button>
+                            </div>
+                        </div>
+                        <div class="modal-date-inputs-row">
+                            <div class="modal-date-field">
+                                <label for="modalFilterDataDe">De:</label>
+                                <input type="date" id="modalFilterDataDe">
+                            </div>
+                            <div class="modal-date-field">
+                                <label for="modalFilterDataAte">Até:</label>
+                                <input type="date" id="modalFilterDataAte">
+                            </div>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btnModalLimparData">Limpar Filtro de Data</button>
+                            <span class="modal-filter-indicator unfiltered" id="modalFilterIndicator">Todo o Histórico</span>
+                        </div>
+                    </div>
+
                     <div class="modal-kpi-grid" id="modalStats"></div>
                     <div class="modal-table-container">
                         <div class="modal-table-header">
