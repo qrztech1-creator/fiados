@@ -160,7 +160,7 @@ async function syncLocalStoragePayments() {
 }
 
 function getItemPaid(item) {
-    return paymentsMap[item.id] || 0;
+    return Math.min(item.saldo, paymentsMap[item.id] || 0);
 }
 
 function getItemRemaining(item) {
@@ -315,7 +315,7 @@ function updateHeaderStats(data) {
     const clientesSet = new Set();
     
     data.forEach(item => {
-        const paid = getItemPaid(item);
+        const paid = Math.min(item.saldo, getItemPaid(item));
         const rem = getItemRemaining(item);
         totalReceber += rem;
         totalRecebido += paid;
@@ -618,7 +618,7 @@ function refreshModal() {
     
     items.forEach(i => {
         const rem = getItemRemaining(i);
-        const paid = getItemPaid(i);
+        const paid = Math.min(i.saldo, getItemPaid(i));
         paidTotal += paid;
         if (rem > 0) {
             totalDebt += rem;
@@ -772,20 +772,28 @@ async function handleBaixaTotal() {
     
     if (!confirm(confirmMsg)) return;
     
-    let count = 0;
-    for (const item of pendingItems) {
-        const rem = getItemRemaining(item);
-        const desc = baixaMode === 'selected' ? 'Baixa em lote' : (isFiltered ? 'Baixa por período' : 'Baixa total');
-        const ok = await registerPayment(item.id, rem, desc);
-        if (ok) count++;
-    }
+    const btnTotal = document.getElementById('btnBaixaTotal');
+    if (btnTotal) btnTotal.disabled = true;
     
-    if (count > 0) {
-        showToast(`${count} baixa(s) registrada(s)!`);
-        selectedItems.clear();
-        document.getElementById('selectAllItems').checked = false;
-        applyFilters();
-        refreshModal();
+    try {
+        let count = 0;
+        for (const item of pendingItems) {
+            const rem = getItemRemaining(item);
+            if (rem <= 0) continue;
+            const desc = baixaMode === 'selected' ? 'Baixa em lote' : (isFiltered ? 'Baixa por período' : 'Baixa total');
+            const ok = await registerPayment(item.id, rem, desc);
+            if (ok) count++;
+        }
+        
+        if (count > 0) {
+            showToast(`${count} baixa(s) registrada(s)!`);
+            selectedItems.clear();
+            document.getElementById('selectAllItems').checked = false;
+            applyFilters();
+            refreshModal();
+        }
+    } finally {
+        if (btnTotal) btnTotal.disabled = false;
     }
 }
 
@@ -825,27 +833,34 @@ async function confirmarBaixaParcial() {
         return da - db;
     });
     
-    let remaining = valor;
-    let count = 0;
-    for (const item of sortedTargets) {
-        const rem = getItemRemaining(item);
-        if (rem <= 0) continue;
-        const pay = Math.min(remaining, rem);
-        const ok = await registerPayment(item.id, pay, nota || `Baixa parcial ${formatBRL(valor)}`);
-        if (ok) {
-            remaining -= pay;
-            count++;
-        }
-        if (remaining <= 0) break;
-    }
+    const btn = document.getElementById('btnConfirmarBaixa');
+    if (btn) btn.disabled = true;
     
-    closeBaixaParcial();
-    if (count > 0) {
-        showToast('Baixa parcial registrada!');
-        selectedItems.clear();
-        document.getElementById('selectAllItems').checked = false;
-        applyFilters();
-        refreshModal();
+    try {
+        let remaining = valor;
+        let count = 0;
+        for (const item of sortedTargets) {
+            const rem = getItemRemaining(item);
+            if (rem <= 0) continue;
+            const pay = Math.min(remaining, rem);
+            const ok = await registerPayment(item.id, pay, nota || `Baixa parcial ${formatBRL(valor)}`);
+            if (ok) {
+                remaining -= pay;
+                count++;
+            }
+            if (remaining <= 0) break;
+        }
+        
+        closeBaixaParcial();
+        if (count > 0) {
+            showToast('Baixa parcial registrada!');
+            selectedItems.clear();
+            document.getElementById('selectAllItems').checked = false;
+            applyFilters();
+            refreshModal();
+        }
+    } finally {
+        if (btn) btn.disabled = false;
     }
 }
 

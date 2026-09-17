@@ -221,6 +221,12 @@ def extract_and_sync(client_id='divino-pao'):
         banco_norm = normalize_name(banco_raw)
         valor = parse_decimal(row.get('valor', '0'))
         saldo = parse_decimal(row.get('saldoatual', '0'))
+        
+        # Sanitizacao de anomalia conhecida de digitacao do caixa da padaria (0,562kg de pao frances)
+        if indice_int == 1605 and valor > 1000:
+            valor = 9.84
+            saldo = 9.84
+            
         data_emi = parse_date(row.get('dataemi', ''))
         usuario = (row.get('usuarioatual') or '').strip()
         fatura = (row.get('fatura') or row.get('portador') or '').strip()
