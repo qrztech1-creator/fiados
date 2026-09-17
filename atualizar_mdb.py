@@ -2,8 +2,9 @@
 QRZ Food — Script de Atualização Automática via .MDB
 1. Extrai registros da tabela contasreceber do banco Access (.mdb/.accdb)
 2. Gera backup local com timestamp em data/backups/
-3. Sincroniza via UPSERT diretamente no Supabase PostgreSQL (zero perda de dados)
-4. Registra histórico na tabela import_logs
+3. Sincroniza via UPSERT diretamente no Supabase PostgreSQL (zero perda de dados, preserva baixas)
+4. Atualiza o dicionário de normalização name_map na tabela clients
+5. Registra histórico na tabela import_logs
 """
 
 import os
@@ -21,10 +22,12 @@ except ImportError:
 
 try:
     import psycopg2
+    from psycopg2.extras import execute_values
 except ImportError:
     import subprocess
     subprocess.run(['pip', 'install', 'psycopg2-binary', '--quiet'])
     import psycopg2
+    from psycopg2.extras import execute_values
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MDB_DIR = os.path.join(BASE_DIR, 'dados brutos')
@@ -49,14 +52,24 @@ NAME_MAP = {
     'c3 oficima':'C3 OFICINA',
     'carol':'CAROL / KAROL','karol':'CAROL / KAROL',
     'casa do construtor':'CASA DO CONSTRUTOR',
-    'dan':'DAN','davinny':'DAVINNY','davynni':'DAVINNY',
+    'casa construtor':'CASA DO CONSTRUTOR',
+    'casa do contrutor':'CASA DO CONSTRUTOR',
+    'dan':'DAN','dani':'DAN','davinny':'DAVINNY','davynni':'DAVINNY',
     'eco mais':'ECO MAIS','eco+':'ECO MAIS','ecomais':'ECO MAIS','ecomaiss':'ECO MAIS',
     'fernando':'FERNANDO DE MOURA ALVES','fernando de moura':'FERNANDO DE MOURA ALVES',
     'fernando de moura alves':'FERNANDO DE MOURA ALVES','givanildo':'GIVANILDO',
-    'isaque':'ISAQUE','izaque':'ISAQUE','juan':'JUAN','juan padeiro':'JUAN',
+    'isaque':'ISAQUE','izaque':'ISAQUE',
+    # Juan / Rhuan / Ruan confirmados como a mesma pessoa
+    'juan':'JUAN','juan padeiro':'JUAN','rhuan':'JUAN','ruan':'JUAN',
     'lagula comideria':'LAGULA COMIDERIA',
     'larissa':'LARYSSA','laryssa':'LARYSSA','leo':'LÉO','léo padeiro':'LÉO',
     'l\u00e9o padeiro':'LÉO','lidyane':'LIDYANE','mbr':'MBR',
+    # Michele e Michele Funcionária confirmadas como a mesma pessoa
+    'michele':'MICHELE','michelle':'MICHELE','michele funcionaria':'MICHELE',
+    # Gabriel Free Lance e Funcionário confirmados como a mesma pessoa
+    'gabriel':'GABRIEL','gabriel free lance':'GABRIEL','gabriel funcionario':'GABRIEL',
+    # Brenda Falcão
+    'brenda falcao':'BRENDA FALCAO','brnda falcao':'BRENDA FALCAO',
     'primicias':'PRIMÍCIAS','primicis':'PRIMÍCIAS','primicia':'PRIMÍCIAS',
     'primícias':'PRIMÍCIAS','prim\u00edcias':'PRIMÍCIAS',
     'rayane':'RAYANE / RAYANNE','rayanne':'RAYANE / RAYANNE',
@@ -64,14 +77,17 @@ NAME_MAP = {
     'stephamy':'STEPHANY','stephany':'STEPHANY','sthephane':'STEPHANY',
     'sthephany':'STEPHANY','suport ferramenta':'SUPPORT FERRAMENTAS',
     'suporte':'SUPPORT FERRAMENTAS','support ferramentas':'SUPPORT FERRAMENTAS',
+    'support ferramenta':'SUPPORT FERRAMENTAS',
     'vessa':'VESSA VEÍCULOS','vessa veiculos':'VESSA VEÍCULOS',
-    'vessa veiculoa':'VESSA VEÍCULOS','versa veiculos':'VESSA VEÍCULOS',
+    'vessa veiculo':'VESSA VEÍCULOS','vessa veiculoa':'VESSA VEÍCULOS','versa veiculos':'VESSA VEÍCULOS',
     'ana kallytha':'ANA KALLYTHA',
     'andressa ganhadora':'ANDRESSA GANHADORA','arthur ferreira':'ARTHUR FERREIRA',
     'arthuer':'ARTHUR FERREIRA','bel':'BEL','eli':'ELI','fex':'FEX','flaa':'FLAA',
     'leandro':'LEANDRO','lilian da silva':'LILIAN DA SILVA','paulo':'PAULO',
-    'raissa':'RAISSA','raquel':'RAQUEL','resutare':'RESUTARE','ruan':'RUAN',
+    'raissa':'RAISSA','raquel':'RAQUEL','resutare':'RESUTARE',
     'thiago sistema':'THIAGO SISTEMA',
+    'izabel':'IZABEL',
+    'norivaldo dias fernandes':'NORIVALDO DIAS FERNANDES'
 }
 
 def parse_decimal(val):
@@ -98,14 +114,14 @@ def normalize_name(raw):
     return NAME_MAP.get(s.lower(), NAME_MAP.get(s, s.upper()))
 
 def find_mdb_file():
-    if not os.path.exists(MDB_DIR):
-        os.makedirs(MDB_DIR, exist_ok=True)
-        return None
-    for f in os.listdir(MDB_DIR):
-        if f.lower().endswith(('.mdb', '.accdb')):
-            return os.path.join(MDB_DIR, f)
+    # 1. Procurar em dados brutos
+    if os.path.exists(MDB_DIR):
+        for f in os.listdir(MDB_DIR):
+            if f.lower().endswith(('.mdb', '.accdb')) and 'backup' not in f.lower():
+                return os.path.join(MDB_DIR, f)
+    # 2. Procurar na raiz do projeto
     for f in os.listdir(BASE_DIR):
-        if f.lower().endswith(('.mdb', '.accdb')):
+        if f.lower().endswith(('.mdb', '.accdb')) and 'backup' not in f.lower():
             return os.path.join(BASE_DIR, f)
     return None
 
@@ -127,7 +143,7 @@ def extract_and_sync(client_id='divino-pao'):
     cursor = conn.cursor()
     try:
         cursor.execute("SELECT * FROM contasreceber")
-        cols = [desc[0] for desc in cursor.description]
+        cols = [desc[0].lower() for desc in cursor.description]
         rows = cursor.fetchall()
     except Exception as e:
         print(f"[-] Erro ao consultar tabela 'contasreceber': {e}")
@@ -149,7 +165,7 @@ def extract_and_sync(client_id='divino-pao'):
         records.append(rec)
     conn.close()
 
-    print(f"[+] Total de {len(records)} registros extraídos do Access.")
+    print(f"[+] Total de {len(records)} registros extraidos do Access.")
 
     # 1. Backup Local com Timestamp
     os.makedirs(BACKUP_DIR, exist_ok=True)
@@ -159,9 +175,16 @@ def extract_and_sync(client_id='divino-pao'):
         json.dump(records, f, ensure_ascii=False, indent=2)
     print(f"[+] Backup salvo em: {bkp_path}")
 
-    # Atualizar dados_fiado.json local também
+    # Atualizar dados_fiado.json e dados.js localmente também
     with open(JSON_FILE, 'w', encoding='utf-8') as f:
         json.dump(records, f, ensure_ascii=False, indent=2)
+    
+    js_content = "const EMBEDDED_DATA = " + json.dumps(records, ensure_ascii=False, indent=2) + ";\n"
+    if os.path.exists(os.path.dirname(DATA_FILE)):
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            f.write(js_content)
+    with open(ROOT_DADOS_JS, 'w', encoding='utf-8') as f:
+        f.write(js_content)
 
     # 2. Sincronizar com Supabase PostgreSQL
     print("[+] Conectando ao Supabase PostgreSQL...")
@@ -173,8 +196,14 @@ def extract_and_sync(client_id='divino-pao'):
         print(f"[-] Erro ao conectar ao PostgreSQL: {e}")
         return
 
+    # Atualizar o dicionário name_map do cliente no Supabase
+    pg_cur.execute("""
+        UPDATE public.clients SET name_map = %s WHERE id = %s
+    """, (json.dumps(NAME_MAP), client_id))
+    print(f"[+] Dicionario de normalizacao name_map atualizado no Supabase ({len(NAME_MAP)} mapeamentos).")
+
     batch_id = f"mdb_sync_{ts}"
-    inserted_updated = 0
+    rows_to_insert = []
     errors = 0
 
     for row in records:
@@ -198,31 +227,48 @@ def extract_and_sync(client_id='divino-pao'):
         historico = (row.get('historico') or '').strip()
         parcela = (row.get('parcela') or '').strip()
 
-        try:
-            pg_cur.execute("""
-                INSERT INTO public.records 
-                    (client_id, indice, banco, banco_normalized, fatura, historico, 
-                     valor, saldo_atual, data_emissao, usuario, parcela, batch)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (client_id, indice) DO UPDATE SET
-                    banco = EXCLUDED.banco,
-                    banco_normalized = EXCLUDED.banco_normalized,
-                    fatura = EXCLUDED.fatura,
-                    historico = EXCLUDED.historico,
-                    valor = EXCLUDED.valor,
-                    saldo_atual = EXCLUDED.saldo_atual,
-                    data_emissao = EXCLUDED.data_emissao,
-                    usuario = EXCLUDED.usuario,
-                    parcela = EXCLUDED.parcela,
-                    batch = EXCLUDED.batch
-            """, (
-                client_id, indice_int, banco_raw, banco_norm, fatura, historico,
-                valor, saldo, data_emi, usuario, parcela, batch_id
-            ))
-            inserted_updated += 1
-        except Exception as e:
-            print(f"[-] Erro ao inserir indice {indice_int}: {e}")
-            errors += 1
+        rows_to_insert.append((
+            client_id, indice_int, banco_raw, banco_norm, fatura, historico,
+            valor, saldo, data_emi, usuario, parcela, batch_id
+        ))
+
+    print(f"[+] Executando UPSERT em lote de {len(rows_to_insert)} registros no PostgreSQL...")
+    
+    # Inserção em lotes rápidos de 250
+    chunk_size = 250
+    inserted_updated = 0
+    for i in range(0, len(rows_to_insert), chunk_size):
+        chunk = rows_to_insert[i:i + chunk_size]
+        execute_values(
+            pg_cur,
+            """
+            INSERT INTO public.records 
+                (client_id, indice, banco, banco_normalized, fatura, historico, 
+                 valor, saldo_atual, data_emissao, usuario, parcela, batch)
+            VALUES %s
+            ON CONFLICT (client_id, indice) DO UPDATE SET
+                banco = EXCLUDED.banco,
+                banco_normalized = EXCLUDED.banco_normalized,
+                fatura = EXCLUDED.fatura,
+                historico = EXCLUDED.historico,
+                valor = EXCLUDED.valor,
+                saldo_atual = EXCLUDED.saldo_atual,
+                data_emissao = EXCLUDED.data_emissao,
+                usuario = EXCLUDED.usuario,
+                parcela = EXCLUDED.parcela,
+                batch = EXCLUDED.batch
+            """,
+            chunk
+        )
+        inserted_updated += len(chunk)
+
+    # Também atualizar registros antigos caso algum nome_normalized precise ser padronizado de acordo com o novo NAME_MAP
+    for raw_name, norm_name in NAME_MAP.items():
+        pg_cur.execute("""
+            UPDATE public.records 
+            SET banco_normalized = %s 
+            WHERE client_id = %s AND LOWER(banco) = %s AND banco_normalized != %s
+        """, (norm_name, client_id, raw_name.lower(), norm_name))
 
     # Registrar log de importação
     filename = os.path.basename(mdb_path)
@@ -234,15 +280,25 @@ def extract_and_sync(client_id='divino-pao'):
     # Conferência
     pg_cur.execute("SELECT COUNT(*) FROM public.records WHERE client_id = %s", (client_id,))
     total_db = pg_cur.fetchone()[0]
+    
+    pg_cur.execute("SELECT COUNT(*) FROM public.payments WHERE client_id = %s", (client_id,))
+    total_payments = pg_cur.fetchone()[0]
+    
     pg_cur.execute("SELECT COALESCE(SUM(saldo_atual), 0) FROM public.records WHERE client_id = %s", (client_id,))
     total_saldo = pg_cur.fetchone()[0]
+    
+    pg_cur.execute("SELECT COUNT(DISTINCT banco_normalized) FROM public.records WHERE client_id = %s", (client_id,))
+    total_clientes = pg_cur.fetchone()[0]
+    
     pg_conn.close()
 
-    print(f"\n[OK] Sincronização com Supabase concluída com sucesso!")
+    print(f"\n[OK] Sincronizacao com Supabase concluida com sucesso!")
     print(f"     Registros processados: {inserted_updated}")
     print(f"     Erros: {errors}")
     print(f"     Total no banco Supabase: {total_db}")
-    print(f"     Saldo total em aberto: R$ {total_saldo:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+    print(f"     Clientes unicos ativos: {total_clientes}")
+    print(f"     Baixas preservadas no banco: {total_payments}")
+    print(f"     Saldo total dos lancamentos: R$ {total_saldo:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
 
 if __name__ == '__main__':
     extract_and_sync()
