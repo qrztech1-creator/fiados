@@ -54,6 +54,8 @@ NAME_MAP = {
     'casa do construtor':'CASA DO CONSTRUTOR',
     'casa construtor':'CASA DO CONSTRUTOR',
     'casa do contrutor':'CASA DO CONSTRUTOR',
+    'casa do construtor superloc':'CASA DO CONSTRUTOR',
+    'casa do construtor superlo  matheus':'CASA DO CONSTRUTOR',
     'dan':'DAN','dani':'DAN','davinny':'DAVINNY','davynni':'DAVINNY',
     'eco mais':'ECO MAIS','eco+':'ECO MAIS','ecomais':'ECO MAIS','ecomaiss':'ECO MAIS',
     'fernando':'FERNANDO DE MOURA ALVES','fernando de moura':'FERNANDO DE MOURA ALVES',
@@ -68,26 +70,34 @@ NAME_MAP = {
     'michele':'MICHELE','michelle':'MICHELE','michele funcionaria':'MICHELE',
     # Gabriel Free Lance e Funcionário confirmados como a mesma pessoa
     'gabriel':'GABRIEL','gabriel free lance':'GABRIEL','gabriel funcionario':'GABRIEL',
-    # Brenda Falcão
+    # Brenda Falcão / brenda
     'brenda falcao':'BRENDA FALCAO','brnda falcao':'BRENDA FALCAO',
+    'brenda':'BRENDA FALCAO','brenda falcão':'BRENDA FALCAO',
     'primicias':'PRIMÍCIAS','primicis':'PRIMÍCIAS','primicia':'PRIMÍCIAS',
     'primícias':'PRIMÍCIAS','prim\u00edcias':'PRIMÍCIAS',
+    'primicias velar':'PRIMÍCIAS',
     'rayane':'RAYANE / RAYANNE','rayanne':'RAYANE / RAYANNE',
     'rayssa':'RAYANE / RAYANNE',
     'stephamy':'STEPHANY','stephany':'STEPHANY','sthephane':'STEPHANY',
     'sthephany':'STEPHANY','suport ferramenta':'SUPPORT FERRAMENTAS',
     'suporte':'SUPPORT FERRAMENTAS','support ferramentas':'SUPPORT FERRAMENTAS',
-    'support ferramenta':'SUPPORT FERRAMENTAS',
+    'support ferramenta':'SUPPORT FERRAMENTAS','suporte feramenta':'SUPPORT FERRAMENTAS',
     'vessa':'VESSA VEÍCULOS','vessa veiculos':'VESSA VEÍCULOS',
     'vessa veiculo':'VESSA VEÍCULOS','vessa veiculoa':'VESSA VEÍCULOS','versa veiculos':'VESSA VEÍCULOS',
     'ana kallytha':'ANA KALLYTHA',
     'andressa ganhadora':'ANDRESSA GANHADORA','arthur ferreira':'ARTHUR FERREIRA',
-    'arthuer':'ARTHUR FERREIRA','bel':'BEL','eli':'ELI','fex':'FEX','flaa':'FLAA',
+    'arthuer':'ARTHUR FERREIRA','arthur':'ARTHUR FERREIRA',
+    'bel':'BEL','eli':'ELI','fex':'FEX','flaa':'FLAA',
     'leandro':'LEANDRO','lilian da silva':'LILIAN DA SILVA','paulo':'PAULO',
     'raissa':'RAISSA','raquel':'RAQUEL','resutare':'RESUTARE',
-    'thiago sistema':'THIAGO SISTEMA',
+    'thiago sistema':'THIAGO SISTEMA','thiago  programa':'THIAGO SISTEMA',
     'izabel':'IZABEL',
-    'norivaldo dias fernandes':'NORIVALDO DIAS FERNANDES'
+    'norivaldo dias fernandes':'NORIVALDO DIAS FERNANDES',
+    # Novos clientes confirmados em 24/09/2026
+    'thaynar':'THAYNAR MANHÃES','thaynar manhas':'THAYNAR MANHÃES','thaynar manhaes':'THAYNAR MANHÃES',
+    'flash':'FLASH',
+    'gina':'GINA',
+    'aurelice':'AURELICE',
 }
 
 def parse_decimal(val):
